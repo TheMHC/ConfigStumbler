@@ -1,9 +1,8 @@
 #RequireAdmin
-#RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8"
-$Last_Modified = "07/04/2011" ;Happy 4th of July!!!!
+$Program_Version = "0.8.2"
+$Last_Modified = "2013-06-27"
 $By = "TheMHC"
 ;-----------------------------------
 Opt("GUIOnEventMode", 1);Change to OnEvent mode
@@ -22,15 +21,6 @@ Opt("GUIResizeMode", 802)
 #include <process.au3>
 #include "UDFs\ParseCSV.au3"
 
-;Create Directories
-Dim $TmpDir = @ScriptDir & '\temp\'
-Dim $ConfDir = @ScriptDir & '\configs\'
-Dim $SavefDir = @ScriptDir & '\save\'
-DirCreate($TmpDir)
-DirCreate($ConfDir)
-DirCreate($SavefDir)
-
-Dim $settings = @ScriptDir & '\settings.ini'
 Dim $ConfigID = 0
 Dim $DBhndl
 Dim $UDPsocket
@@ -39,18 +29,38 @@ Dim $UDPport = 68
 Dim $DefaultIntMenuID = '-1'
 Dim $Scan = 0
 Dim $DocsisDecoder = 0
-Dim $DontAddIfInfoBlank = 0
+
+;Settings file
+Dim $settings = @ScriptDir & '\settings.ini'
+
+;Set up log files for current session
+Dim $logfile = @ScriptDir & '\log.txt'
+Dim $configfile = @ScriptDir & '\configs.csv'
+FileDelete($logfile)
+FileDelete($configfile)
+$logfile = FileOpen($logfile, 128 + 2);Open in UTF-8 write mode
+$configfile = FileOpen($configfile, 128 + 2);Open in UTF-8 write mode
+
+;Paths to files needed
+Dim $tftp_exe = IniRead($settings, 'NeededFiles', 'tftp', @ScriptDir & '\tftp.exe')
+Dim $DocsisEXE = IniRead($settings, 'NeededFiles', 'docsis', @ScriptDir & '\docsis.exe')
+Dim $PuttyEXE = IniRead($settings, 'NeededFiles', 'putty', @ScriptDir & '\putty.exe')
+Dim $pscpEXE = IniRead($settings, 'NeededFiles', 'putty', @ScriptDir & '\pscp.exe')
+Dim $TST10EXE = IniRead($settings, 'NeededFiles', 'tst10', @ScriptDir & '\TST10.exe')
+
+;Create Directories
+Dim $TmpDir = IniRead($settings, 'Directories', 'tmp', @ScriptDir & '\temp\')
+Dim $ConfDir = IniRead($settings, 'Directories', 'config', @ScriptDir & '\configs\')
+Dim $SavefDir = IniRead($settings, 'Directories', 'save', @ScriptDir & '\save\')
+DirCreate($TmpDir)
+DirCreate($ConfDir)
+DirCreate($SavefDir)
+
 Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', "1")
 Dim $OverrideTftp = IniRead($settings, 'Settings', 'OverrideTftp', 0)
 Dim $OverrideTftpIP = IniRead($settings, 'Settings', 'OverrideTftpIP', "0.0.0.0")
 Dim $DefaultName = IniRead($settings, 'Settings', 'DefaultName', "Local Area Connection")
 Dim $DefaultIP = IniRead($settings, 'Settings', 'DefaultIP', "127.0.0.1")
-Dim $tftp_exe = @ScriptDir & '\tftp.exe'
-Dim $DocsisEXE = @ScriptDir & '\docsis.exe'
-Dim $PuttyEXE = @ScriptDir & '\putty.exe'
-Dim $TST10EXE = @ScriptDir & '\TST10.exe'
-Dim $logfile = @ScriptDir & '\log.txt'
-Dim $configfile = @ScriptDir & '\configs.csv'
 
 Dim $5100InfoGUI, $5101InfoGUI, $6120InfoGUI, $ModemIP, $User, $Pass
 Dim $5100telnetIP = IniRead($settings, '5100', 'telnetIP', "192.168.100.1")
@@ -79,8 +89,6 @@ Dim $macpre = IniRead($settings, 'ScanMacRange', 'macpre', "")
 Dim $macsuf = IniRead($settings, 'ScanMacRange', 'macsuf', "")
 Dim $mactftp = IniRead($settings, 'ScanMacRange', 'mactftp', "")
 
-FileDelete($logfile)
-FileDelete($configfile)
 FileWrite($configfile, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 
 $fldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & '-' & @MIN & '-' & @SEC
@@ -116,12 +124,13 @@ $Set5101telnetinfo = GUICtrlCreateMenuItem("Set SB5101 telnet info ", $5101haxor
 $Set5101selmac = GUICtrlCreateMenuItem("Set SB5101 mac to selected", $5101haxorwareMenu)
 $Set5101toallmacs = GUICtrlCreateMenuItem("Set SB5101 mac to all macs (timed)", $5101haxorwareMenu)
 $Set5101toallmacstilonline = GUICtrlCreateMenuItem("Set SB5101 mac to all macs until online (timed)", $5101haxorwareMenu)
-$6120AlphaMenu = GUICtrlCreateMenu("6120 (ForceWare)", $ExtraMenu)
+$6120AlphaMenu = GUICtrlCreateMenu("6120 (ForceWare 1.2+)", $ExtraMenu)
 $Set6120sshinfo = GUICtrlCreateMenuItem("Set SB6120 ssh info ", $6120AlphaMenu)
 $Set6120selmac = GUICtrlCreateMenuItem("Set SB6120 mac to selected", $6120AlphaMenu)
 $Set6120toallmacs = GUICtrlCreateMenuItem("Set SB6120 mac to all macs (timed)", $6120AlphaMenu)
 $Set6120toallmacstilonline = GUICtrlCreateMenuItem("Set SB6120 mac to all macs until online (timed)", $6120AlphaMenu)
-
+$importconfigfile = GUICtrlCreateMenuItem("Import config file", $ExtraMenu)
+$importconfigfolder = GUICtrlCreateMenuItem("Import folder of config files", $ExtraMenu)
 
 ;End Get Local IPs
 $ScanButton = GUICtrlCreateButton("Scan", 8, 8, 81, 33, $WS_GROUP)
@@ -174,6 +183,8 @@ GUICtrlSetOnEvent($Set6120sshinfo, '_Set6120sshinfo')
 GUICtrlSetOnEvent($Set6120selmac, '_Set6120selctedmac')
 GUICtrlSetOnEvent($Set6120toallmacs, '_Set6120toallmacs')
 GUICtrlSetOnEvent($Set6120toallmacstilonline, '_Set6120toallmacstilonline')
+GUICtrlSetOnEvent($importconfigfile, '_ImportConfigFile')
+GUICtrlSetOnEvent($importconfigfolder, '_ImportConfigFolder')
 
 ;Set Window Size
 $a = WinGetPos($ConfigStumbler);Get window current position
@@ -416,6 +427,7 @@ Func _ExportList()
 	$file = FileSaveDialog('Save As', '', 'Coma Delimeted File (*.CSV)', '', $fldatetimestamp & '.CSV')
 	If @error <> 1 Then
 		FileDelete($file)
+		$file = FileOpen($file, 128 + 2);Open in UTF-8 write mode
 		FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 		Local $ConfigMatchArray, $iRows, $iColumns, $iRval
 		$query = "SELECT mac, client, tftp, config, info, times, configtxt FROM CONFIGDATA"
@@ -432,6 +444,7 @@ Func _ExportList()
 				FileWrite($file, '"' & $ExpMac & '",' & $ExpClient & ',' & $ExpTftp & ',"' & $ExpConfig & '","' & $ExpInfo & '",' & $ExpTimes & ',' & $ExpConfigTXT & @CRLF)
 			Next
 		EndIf
+		FileClose($file)
 		GUICtrlSetData($messagebox, "Done saving file")
 	EndIf
 EndFunc   ;==>_ExportList
@@ -451,6 +464,7 @@ Func _LoadLogTXT()
 			$ldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & ':' & @MIN & ':' & @SEC
 			_CheckData($linein)
 		Next
+		FileClose($logfile)
 		GUICtrlSetData($messagebox, "Done loading file")
 	EndIf
 EndFunc   ;==>_LoadLogTXT
@@ -910,12 +924,14 @@ Func _Settoallmacs($type)
 				_RunDOS('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
 				Sleep(5000)
 				FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
-				$query = "SELECT mac FROM CONFIGDATA"
+				$query = "SELECT mac, client, tftp FROM CONFIGDATA"
 				$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
 				If $iRows <> 0 Then ;If Configs found, write to file
 					For $cm = 1 To $iRows
 						;Change modem Mac Adress
 						$mac = $ConfigMatchArray[$cm][0]
+						$client = $ConfigMatchArray[$cm][1]
+						$tftp = $ConfigMatchArray[$cm][2]
 						GUICtrlSetData($messagebox, "Setting modem mac to " & $mac & " (" & _GetTime() & ")")
 						If $type = "5100" Then _Set5100mac($mac)
 						If $type = "5101" Then _Set5101mac($mac)
@@ -947,7 +963,7 @@ Func _Settoallmacs($type)
 										$configinfo = _GetConfigInfo($decodedconfig)
 										If $configinfo <> "" Then $infostring = $configinfo
 									EndIf
-									FileWrite($file, '"' & $mac & '",,,"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+									FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
 								EndIf
 							EndIf
 						ElseIf $type = "5101" Then
@@ -968,10 +984,24 @@ Func _Settoallmacs($type)
 									$configinfo = _GetConfigInfo($decodedconfig)
 									If $configinfo <> "" Then $infostring = $configinfo
 								EndIf
-								FileWrite($file, '"' & $mac & '",,,"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+								FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
 							EndIf
 						ElseIf $type = "6120" Then
-							; Config Download Not Yet Implemented
+							$configname = StringReplace($mac, ":", "")
+							$savefile = $ConfDir & $configname & '.cfg'
+							$cmd = '"' & $pscpEXE & '" -pw ' & $6120sshPW & ' ' & $6120sshUN & '@' & $6120sshIP & ':/forceware/config.running "' & $savefile & '"'
+							$pscp = Run($cmd)
+							Sleep(2000)
+							$config_destfile = $savefile
+							$configtxt = ""
+							$infostring = ""
+							If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
+								$decodedconfig = _DecodeConfig($savefile)
+								If $decodedconfig <> "" Then $configtxt = $decodedconfig
+								$configinfo = _GetConfigInfo($decodedconfig)
+								If $configinfo <> "" Then $infostring = $configinfo
+							EndIf
+							FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
 						EndIf
 					Next
 				EndIf
@@ -1161,61 +1191,14 @@ Func _Set6120mac($mac)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(1000)
-	Send("/usr/sbin/cli docsis/Production/prodset")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(20000)
-	Send("{ENTER}")
+	Send("/usr/local/bin/mfprod write cmMacAddress " & $mac)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send(StringReplace($mac, ":", "-"))
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("w")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(20000)
 	Send("reboot")
 	Sleep(50)
 	Send("{ENTER}")
+	Sleep(1000)
 	While (WinExists($6120sshIP & " - PuTTY") Or WinExists("PuTTY (inactive)"))
 		If WinExists("PuTTY Fatal Error") Then
 			WinActive("PuTTY Fatal Error")
@@ -1336,3 +1319,47 @@ Func _ToggleOverrideTftp()
 		GUICtrlSetState($OverrideTftpCheck, $GUI_UNCHECKED)
 	EndIf
 EndFunc   ;==>_ToggleOverrideTftp
+
+Func _ImportConfigFile()
+	$opencfgfile = FileOpenDialog("Select config file to import", $SavefDir, "Config files (*.cfg;*.cm)")
+	If Not @error Then
+		$config = StringTrimLeft($opencfgfile, StringInStr($opencfgfile, "\", 0, -1))
+		$decodedconfig = _DecodeConfig($opencfgfile)
+		$infostring = _GetConfigInfo($decodedconfig)
+		;Add into list
+		$ConfigID += 1
+		$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
+		_ListViewAdd($ListRow, $ConfigID, "", "", "", $config, $infostring, 1)
+		;Add into DB
+		GUICtrlSetData($messagebox, 'Inserting into DB')
+		$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','','','','" & $infostring & "','1','" & $decodedconfig & "');"
+		_SQLite_Exec($DBhndl, $query)
+		;Log line
+		GUICtrlSetData($messagebox, 'Inserting into Log')
+		FileWrite($configfile, '"",,,"' & $config & '","' & $infostring & '",1,' & StringToBinary($decodedconfig) & @CRLF)
+	EndIf
+EndFunc   ;==>_ImportConfigFile
+
+Func _ImportConfigFolder()
+	$opencfgfolder = FileSelectFolder("Select a folder with config files to import", "", 0,$ConfDir)
+	If Not @error Then
+		$cfgfiles = _FileListToArray($opencfgfolder)
+		For $if = 1 to $cfgfiles[0]
+			$configpath = $opencfgfolder & "\" & $cfgfiles[$if]
+			$config = $cfgfiles[$if]
+			$decodedconfig = _DecodeConfig($configpath)
+			$infostring = _GetConfigInfo($decodedconfig)
+			;Add into list
+			$ConfigID += 1
+			$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
+			_ListViewAdd($ListRow, $ConfigID, "", "", "", $config, $infostring, 1)
+			;Add into DB
+			GUICtrlSetData($messagebox, 'Inserting into DB')
+			$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','','','','" & $infostring & "','1','" & $decodedconfig & "');"
+			_SQLite_Exec($DBhndl, $query)
+			;Log line
+			GUICtrlSetData($messagebox, 'Inserting into Log')
+			FileWrite($configfile, '"",,,"' & $config & '","' & $infostring & '",1,' & StringToBinary($decodedconfig) & @CRLF)
+		Next
+	EndIf
+EndFunc   ;==>_ImportConfigFile
