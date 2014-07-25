@@ -1,8 +1,9 @@
 #RequireAdmin
+#RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.7"
-$Last_Modified = "09/18/2010"
+$Program_Version = "0.8"
+$Last_Modified = "07/04/2011" ;Happy 4th of July!!!!
 $By = "TheMHC"
 ;-----------------------------------
 Opt("GUIOnEventMode", 1);Change to OnEvent mode
@@ -18,6 +19,7 @@ Opt("GUIResizeMode", 802)
 #include <String.au3>
 #include <SQLite.au3>
 #include <INet.au3>
+#include <process.au3>
 #include "UDFs\ParseCSV.au3"
 
 ;Create Directories
@@ -41,18 +43,34 @@ Dim $DontAddIfInfoBlank = 0
 Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', "1")
 Dim $OverrideTftp = IniRead($settings, 'Settings', 'OverrideTftp', 0)
 Dim $OverrideTftpIP = IniRead($settings, 'Settings', 'OverrideTftpIP', "0.0.0.0")
+Dim $DefaultName = IniRead($settings, 'Settings', 'DefaultName', "Local Area Connection")
 Dim $DefaultIP = IniRead($settings, 'Settings', 'DefaultIP', "127.0.0.1")
 Dim $tftp_exe = @ScriptDir & '\tftp.exe'
 Dim $DocsisEXE = @ScriptDir & '\docsis.exe'
 Dim $PuttyEXE = @ScriptDir & '\putty.exe'
+Dim $TST10EXE = @ScriptDir & '\TST10.exe'
 Dim $logfile = @ScriptDir & '\log.txt'
 Dim $configfile = @ScriptDir & '\configs.csv'
 
-Dim $5100InfoGUI, $ModemIP, $TelnetUser, $TelnetPass
-Dim $5100teletIP = IniRead($settings, '5100tftp', 'teletIP', "192.168.100.1")
-Dim $5100teletUN = IniRead($settings, '5100tftp', 'teletUN', "")
-Dim $5100teletPW = IniRead($settings, '5100tftp', 'teletPW', "")
-Dim $5100telnetSet = IniRead($settings, '5100tftp', 'telnetSet', 0)
+Dim $5100InfoGUI, $5101InfoGUI, $6120InfoGUI, $ModemIP, $User, $Pass
+Dim $5100telnetIP = IniRead($settings, '5100', 'telnetIP', "192.168.100.1")
+Dim $5100telnetUN = IniRead($settings, '5100', 'telnetUN', "")
+Dim $5100telnetPW = IniRead($settings, '5100', 'telnetPW', "")
+Dim $5100telnetSet = IniRead($settings, '5100', 'telnetSet', 0)
+Dim $5101telnetIP = IniRead($settings, '5101', 'sshIP', "192.168.100.1")
+Dim $5101telnetUN = IniRead($settings, '5101', 'sshUN', "")
+Dim $5101telnetPW = IniRead($settings, '5101', 'sshPW', "")
+Dim $5101telnetSet = IniRead($settings, '5101', 'sshSet', 0)
+Dim $6120sshIP = IniRead($settings, '6120', 'sshIP', "192.168.100.1")
+Dim $6120sshUN = IniRead($settings, '6120', 'sshUN', "")
+Dim $6120sshPW = IniRead($settings, '6120', 'sshPW', "")
+Dim $6120sshSet = IniRead($settings, '6120', 'sshSet', 0)
+Dim $6120netcon = IniRead($settings, '6120', 'NetworkConnection', 'Local Area Connection')
+
+Dim $InterfaceMenuID_Array[1]
+Dim $InterfaceMenuName_Array[1]
+Dim $InterfaceMenuIP_Array[1]
+Dim $RefreshInterfaces
 
 Dim $tmrGUI, $rTftp, $rMacPre, $rMacSuf, $rStartMac, $rEndMac
 Dim $startmac = IniRead($settings, 'ScanMacRange', 'startmac', "00:00:00:00:00:00")
@@ -85,47 +103,26 @@ $EditCopyConfigName = GUICtrlCreateMenuItem("Config Name", $EditCopyMenu)
 $EditCopyConfigPath = GUICtrlCreateMenuItem("Config Path", $EditCopyMenu)
 $EditShowConfig = GUICtrlCreateMenuItem("View Selected Config", $EditMenu)
 $InterfaceMenu = GUICtrlCreateMenu("Interface")
+_AddInterfaces()
 $ExtraMenu = GUICtrlCreateMenu("Extra")
 $EditTestBprMac = GUICtrlCreateMenuItem("Test mac range", $ExtraMenu)
 $SigmaX2Menu = GUICtrlCreateMenu("5100 (Sigma X2)", $ExtraMenu)
 $Set5100telnetinfo = GUICtrlCreateMenuItem("Set SB5100 telnet info ", $SigmaX2Menu)
 $Set5100selmac = GUICtrlCreateMenuItem("Set SB5100 mac to selected", $SigmaX2Menu)
 $Set5100toallmacs = GUICtrlCreateMenuItem("Set SB5100 mac to all macs (timed)", $SigmaX2Menu)
+$Set5100toallmacstilonline = GUICtrlCreateMenuItem("Set SB5100 mac to all macs until online (timed)", $SigmaX2Menu)
+$5101haxorwareMenu = GUICtrlCreateMenu("5101 (haxorware)", $ExtraMenu)
+$Set5101telnetinfo = GUICtrlCreateMenuItem("Set SB5101 telnet info ", $5101haxorwareMenu)
+$Set5101selmac = GUICtrlCreateMenuItem("Set SB5101 mac to selected", $5101haxorwareMenu)
+$Set5101toallmacs = GUICtrlCreateMenuItem("Set SB5101 mac to all macs (timed)", $5101haxorwareMenu)
+$Set5101toallmacstilonline = GUICtrlCreateMenuItem("Set SB5101 mac to all macs until online (timed)", $5101haxorwareMenu)
+$6120AlphaMenu = GUICtrlCreateMenu("6120 (ForceWare)", $ExtraMenu)
+$Set6120sshinfo = GUICtrlCreateMenuItem("Set SB6120 ssh info ", $6120AlphaMenu)
+$Set6120selmac = GUICtrlCreateMenuItem("Set SB6120 mac to selected", $6120AlphaMenu)
+$Set6120toallmacs = GUICtrlCreateMenuItem("Set SB6120 mac to all macs (timed)", $6120AlphaMenu)
+$Set6120toallmacstilonline = GUICtrlCreateMenuItem("Set SB6120 mac to all macs until online (timed)", $6120AlphaMenu)
 
-;Get Local IPs
-Dim $FoundIP = 0
-Dim $InterfaceMenuID_Array[1]
-Dim $InterfaceMenuIP_Array[1]
-$wbemFlagReturnImmediately = 0x10
-$wbemFlagForwardOnly = 0x20
-$colItems = ""
-$strComputer = "localhost"
-$objWMIService = ObjGet("winmgmts:\\" & $strComputer & "\root\CIMV2")
-$colItems = $objWMIService.ExecQuery("SELECT * FROM Win32_NetworkAdapterConfiguration", "WQL", $wbemFlagReturnImmediately + $wbemFlagForwardOnly)
-If IsObj($colItems) Then
-	For $objItem In $colItems
-		$ip = $objItem.IPAddress(0)
-		$ip = StringStripWS($ip, 8)
-		If $ip <> "" Then
-			$menuid = GUICtrlCreateMenuItem($ip, $InterfaceMenu)
-			GUICtrlSetOnEvent($menuid, '_IPchanged')
-			_ArrayAdd($InterfaceMenuID_Array, $menuid)
-			_ArrayAdd($InterfaceMenuIP_Array, $ip)
-			$InterfaceMenuID_Array[0] = UBound($InterfaceMenuID_Array) - 1
-			$InterfaceMenuIP_Array[0] = UBound($InterfaceMenuIP_Array) - 1
-			If $ip = $DefaultIP Then
-				$FoundIP = 1
-				$DefaultIntMenuID = $menuid
-				GUICtrlSetState($menuid, $GUI_CHECKED)
-			EndIf
-		EndIf
-	Next
-EndIf
-If $FoundIP = 0 And $InterfaceMenuID_Array[0] <> 0 Then
-	$DefaultIP = $InterfaceMenuIP_Array[1]
-	$DefaultIntMenuID = $InterfaceMenuID_Array[1]
-	GUICtrlSetState($DefaultIntMenuID, $GUI_CHECKED)
-EndIf
+
 ;End Get Local IPs
 $ScanButton = GUICtrlCreateButton("Scan", 8, 8, 81, 33, $WS_GROUP)
 $messagebox = GUICtrlCreateLabel("", 8, 45, 500, 15, $SS_LEFT)
@@ -168,6 +165,15 @@ GUICtrlSetOnEvent($ScanButton, '_ToggleScanning')
 GUICtrlSetOnEvent($Set5100telnetinfo, '_Set5100telnetinfo')
 GUICtrlSetOnEvent($Set5100selmac, '_Set5100selctedmac')
 GUICtrlSetOnEvent($Set5100toallmacs, '_Set5100toallmacs')
+GUICtrlSetOnEvent($Set5100toallmacstilonline, '_Set5100toallmacstilonline')
+GUICtrlSetOnEvent($Set5101telnetinfo, '_Set5101telnetinfo')
+GUICtrlSetOnEvent($Set5101selmac, '_Set5101selctedmac')
+GUICtrlSetOnEvent($Set5101toallmacs, '_Set5101toallmacs')
+GUICtrlSetOnEvent($Set5101toallmacstilonline, '_Set5101toallmacstilonline')
+GUICtrlSetOnEvent($Set6120sshinfo, '_Set6120sshinfo')
+GUICtrlSetOnEvent($Set6120selmac, '_Set6120selctedmac')
+GUICtrlSetOnEvent($Set6120toallmacs, '_Set6120toallmacs')
+GUICtrlSetOnEvent($Set6120toallmacstilonline, '_Set6120toallmacstilonline')
 
 ;Set Window Size
 $a = WinGetPos($ConfigStumbler);Get window current position
@@ -329,7 +335,7 @@ Func _DecodeConfig($local_configfile)
 			If @error Then ExitLoop
 		WEnd
 	EndIf
-	Return($decode_line)
+	Return ($decode_line)
 EndFunc   ;==>_DecodeConfig
 
 Func _GetConfigInfo($decoded_config)
@@ -398,12 +404,12 @@ EndFunc   ;==>_ListViewAdd
 
 Func _GetTime()
 	$ldatetimestamp = StringFormat("%04i", @YEAR) & '/' & StringFormat("%02i", @MON) & '/' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & ':' & @MIN & ':' & @SEC
-	Return($ldatetimestamp)
-EndFunc
+	Return ($ldatetimestamp)
+EndFunc   ;==>_GetTime
 
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; File Menu Functions
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Func _ExportList()
 	$fldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & '-' & @MIN & '-' & @SEC
@@ -456,7 +462,19 @@ Func _LoadCSV()
 		$iSize = UBound($CSVArray) - 1
 		$iCol = UBound($CSVArray, 2)
 		ConsoleWrite("$iCol=" & $iCol & @CRLF)
-		If $iCol = 6 Then ;Import ConfigStumbler 0.6 CSV
+		If $iCol = 5 Then ;Import ConfigStumbler 0.5 CSV
+			For $lc = 1 To $iSize
+				$LoadMac = StringReplace($CSVArray[$lc][0], '"', '')
+				$LoadTftp = $CSVArray[$lc][1]
+				$LoadConfig = StringReplace($CSVArray[$lc][2], '"', '')
+				$LoadInfo = StringReplace($CSVArray[$lc][3], '"', '')
+				$LoadTImes = $CSVArray[$lc][4]
+				$LoadClient = ""
+				$LoadConfigTXT = ""
+
+				_InsertIntoDB($LoadConfig, $LoadClient, $LoadTftp, $LoadMac, $LoadInfo, $LoadConfigTXT, $LoadTImes)
+			Next
+		ElseIf $iCol = 6 Then ;Import ConfigStumbler 0.6 CSV
 			For $lc = 1 To $iSize
 				$LoadMac = StringReplace($CSVArray[$lc][0], '"', '')
 				$LoadClient = $CSVArray[$lc][1]
@@ -464,8 +482,9 @@ Func _LoadCSV()
 				$LoadConfig = StringReplace($CSVArray[$lc][3], '"', '')
 				$LoadInfo = StringReplace($CSVArray[$lc][4], '"', '')
 				$LoadTImes = $CSVArray[$lc][5]
+				$LoadConfigTXT = ""
 
-				_InsertIntoDB($LoadConfig, $LoadClient, $LoadTftp, $LoadMac, $LoadInfo, "", $LoadTImes)
+				_InsertIntoDB($LoadConfig, $LoadClient, $LoadTftp, $LoadMac, $LoadInfo, $LoadConfigTXT, $LoadTImes)
 			Next
 		ElseIf $iCol = 7 Then ;Import ConfigStumbler 0.7+ CSV
 			For $lc = 1 To $iSize
@@ -480,6 +499,7 @@ Func _LoadCSV()
 				_InsertIntoDB($LoadConfig, $LoadClient, $LoadTftp, $LoadMac, $LoadInfo, $LoadConfigTXT, $LoadTImes)
 			Next
 		EndIf
+		GUICtrlSetData($messagebox, "Done loading file")
 	EndIf
 EndFunc   ;==>_LoadCSV
 
@@ -497,15 +517,24 @@ Func _Exit()
 	IniWrite($settings, 'WindowPositions', 'State', $State)
 	IniWrite($settings, 'WindowPositions', 'Position', $Position)
 	;End Get Window Postions
+	IniWrite($settings, 'Settings', 'DefaultName', $DefaultName)
 	IniWrite($settings, 'Settings', 'DefaultIP', $DefaultIP)
 	IniWrite($settings, 'Settings', 'AutoDownloadConfigs', $AutoDownloadConfigs)
 	IniWrite($settings, 'Settings', 'OverrideTftp', $OverrideTftp)
 	IniWrite($settings, 'Settings', 'OverrideTftpIP', GUICtrlRead($OverrideTftpIpBox))
 
-	IniWrite($settings, '5100tftp', 'teletIP', $5100teletIP)
-	IniWrite($settings, '5100tftp', 'teletUN', $5100teletUN)
-	IniWrite($settings, '5100tftp', 'teletPW', $5100teletPW)
-	IniWrite($settings, '5100tftp', 'telnetSet', $5100telnetSet)
+	IniWrite($settings, '5100', 'telnetIP', $5100telnetIP)
+	IniWrite($settings, '5100', 'telnetUN', $5100telnetUN)
+	IniWrite($settings, '5100', 'telnetPW', $5100telnetPW)
+	IniWrite($settings, '5100', 'telnetSet', $5100telnetSet)
+	IniWrite($settings, '5101', 'sshIP', $5101telnetIP)
+	IniWrite($settings, '5101', 'sshUN', $5101telnetUN)
+	IniWrite($settings, '5101', 'sshPW', $5101telnetPW)
+	IniWrite($settings, '5101', 'sshSet', $5101telnetSet)
+	IniWrite($settings, '6120', 'sshIP', $6120sshIP)
+	IniWrite($settings, '6120', 'sshUN', $6120sshUN)
+	IniWrite($settings, '6120', 'sshPW', $6120sshPW)
+	IniWrite($settings, '6120', 'sshSet', $6120sshSet)
 
 	IniWrite($settings, 'ScanMacRange', 'startmac', $startmac)
 	IniWrite($settings, 'ScanMacRange', 'endmac', $endmac)
@@ -519,9 +548,9 @@ Func _Exit()
 	Exit
 EndFunc   ;==>_Exit
 
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Edit Menu Functions
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Func _CopyMac()
 	$Selected = _GUICtrlListView_GetNextItem($ConfList); find what config is selected in the list. returns -1 is nothing is selected
@@ -630,36 +659,103 @@ Func _CloseDecodedConfig()
 	GUIDelete($DocsisDecoder)
 EndFunc   ;==>_CloseDecodedConfig
 
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Interface Menu Functions
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Func _AddInterfaces()
+	Dim $InterfaceMenuID_Array[1]
+	Dim $InterfaceMenuName_Array[1]
+	Dim $InterfaceMenuIP_Array[1]
+	$RefreshInterfaces = GUICtrlCreateMenuItem("Refresh Interfaces", $InterfaceMenu)
+	GUICtrlSetOnEvent($RefreshInterfaces, '_RefreshInterfaces')
+	Dim $FoundIP = 0
+	$wbemFlagReturnImmediately = 0x10
+	$wbemFlagForwardOnly = 0x20
+	$colItems = ""
+	$strComputer = "localhost"
+	$objWMIService = ObjGet("winmgmts:\\" & $strComputer & "\root\CIMV2")
+	$colItems = $objWMIService.ExecQuery("SELECT * FROM Win32_NetworkAdapter WHERE adapterTypeID = 0")
+	If IsObj($colItems) Then
+		For $objItem In $colItems
+			$adaptername = $objItem.NetConnectionID
+			$adapterindex = $objItem.Index
+			If $adaptername <> "" Then
+				$objWMIService2 = ObjGet("winmgmts:\\" & $strComputer & "\root\CIMV2")
+				$colItems2 = $objWMIService2.ExecQuery("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE Index = " & $adapterindex)
+				If IsObj($colItems2) Then
+					For $objItem2 In $colItems2
+						$adapterip = StringStripWS($objItem2.IPAddress(0), 8)
+						$menuid = GUICtrlCreateMenuItem($adaptername & ' (' & $adapterip & ')', $InterfaceMenu)
+						GUICtrlSetOnEvent($menuid, '_IPchanged')
+						_ArrayAdd($InterfaceMenuID_Array, $menuid)
+						_ArrayAdd($InterfaceMenuName_Array, $adaptername)
+						_ArrayAdd($InterfaceMenuIP_Array, $adapterip)
+						$InterfaceMenuID_Array[0] = UBound($InterfaceMenuID_Array) - 1
+						$InterfaceMenuIP_Array[0] = UBound($InterfaceMenuIP_Array) - 1
+						If $adaptername = $DefaultName Then
+							$FoundIP = 1
+							$DefaultIntMenuID = $menuid
+							$DefaultName = $InterfaceMenuName_Array[1]
+							$DefaultIP = $InterfaceMenuIP_Array[1]
+							GUICtrlSetState($menuid, $GUI_CHECKED)
+						EndIf
+					Next
+				EndIf
+			EndIf
+		Next
+	EndIf
+	If $FoundIP = 0 And $InterfaceMenuID_Array[0] <> 0 Then
+		$DefaultIntMenuID = $InterfaceMenuID_Array[1]
+		$DefaultName = $InterfaceMenuName_Array[1]
+		$DefaultIP = $InterfaceMenuIP_Array[1]
+		GUICtrlSetState($DefaultIntMenuID, $GUI_CHECKED)
+	EndIf
+EndFunc   ;==>_AddInterfaces
+
+Func _RefreshInterfaces()
+	;Remove Menu Items
+	For $ri = 1 To $InterfaceMenuID_Array[0]
+		$menuid = $InterfaceMenuID_Array[$ri]
+		GUICtrlDelete($menuid)
+	Next
+	GUICtrlDelete($RefreshInterfaces)
+	;Add updated interfaces
+	_AddInterfaces()
+EndFunc   ;==>_RefreshInterfaces
 
 Func _IPchanged()
 	$menuid = @GUI_CtrlId
 	For $fs = 1 To $InterfaceMenuID_Array[0]
 		If $InterfaceMenuID_Array[$fs] = $menuid Then
+			$NewName = $InterfaceMenuName_Array[$fs]
 			$NewIP = $InterfaceMenuIP_Array[$fs]
-			If $NewIP <> $DefaultIP Then
+			If $NewName <> $DefaultName Then
 				If $DefaultIntMenuID <> '-1' Then GUICtrlSetState($DefaultIntMenuID, $GUI_UNCHECKED)
-				$DefaultIP = $NewIP
 				$DefaultIntMenuID = $menuid
+				$DefaultName = $NewName
+				$DefaultIP = $NewIP
 				GUICtrlSetState($DefaultIntMenuID, $GUI_CHECKED)
 			EndIf
 		EndIf
 	Next
+	ConsoleWrite($DefaultIntMenuID & @CRLF & $DefaultName & @CRLF & $DefaultIP & @CRLF)
 EndFunc   ;==>_IPchanged
 
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Extra Menu Functions
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+;---> 5100 set telnet info GUI <---
+
 Func _Set5100telnetinfo()
-	$5100InfoGUI = GUICreate("Modem Info", 219, 164)
+	$5100InfoGUI = GUICreate("5100 Modem Info", 219, 164)
 	GUICtrlCreateLabel("Modem IP", 10, 5, 128, 15)
-	$ModemIP = GUICtrlCreateInput($5100teletIP, 10, 20, 200, 20)
+	$ModemIP = GUICtrlCreateInput($5100telnetIP, 10, 20, 200, 20)
 	GUICtrlCreateLabel("Telnet Username", 10, 45, 128, 15)
-	$TelnetUser = GUICtrlCreateInput($5100teletUN, 10, 60, 200, 21)
+	$User = GUICtrlCreateInput($5100telnetUN, 10, 60, 200, 21)
 	GUICtrlCreateLabel("Telnet Password", 10, 85, 128, 15)
-	$TelnetPass = GUICtrlCreateInput($5100teletPW, 10, 100, 200, 21, $ES_PASSWORD)
+	$Pass = GUICtrlCreateInput($5100telnetPW, 10, 100, 200, 21, $ES_PASSWORD)
 	$ButtonOK = GUICtrlCreateButton("OK", 10, 130, 95, 25)
 	$ButtonCan = GUICtrlCreateButton("Cancel", 110, 130, 95, 25)
 	GUISetState(@SW_SHOW)
@@ -669,9 +765,9 @@ Func _Set5100telnetinfo()
 EndFunc   ;==>_Set5100telnetinfo
 
 Func _Set5100telnetinfoOK()
-	$5100teletIP = GUICtrlRead($ModemIP)
-	$5100teletUN = GUICtrlRead($TelnetUser)
-	$5100teletPW = GUICtrlRead($TelnetPass)
+	$5100telnetIP = GUICtrlRead($ModemIP)
+	$5100telnetUN = GUICtrlRead($User)
+	$5100telnetPW = GUICtrlRead($Pass)
 	$5100telnetSet = 1
 	_Set5100telnetinfoClose()
 EndFunc   ;==>_Set5100telnetinfoOK
@@ -680,9 +776,87 @@ Func _Set5100telnetinfoClose()
 	GUIDelete($5100InfoGUI)
 EndFunc   ;==>_Set5100telnetinfoClose
 
+;---> 5101 set telnet info GUI <---
+
+Func _Set5101telnetinfo()
+	$5101InfoGUI = GUICreate("5101 Modem Info", 219, 164)
+	GUICtrlCreateLabel("Modem IP", 10, 5, 128, 15)
+	$ModemIP = GUICtrlCreateInput($5101telnetIP, 10, 20, 200, 20)
+	GUICtrlCreateLabel("Telnet Username", 10, 45, 128, 15)
+	$User = GUICtrlCreateInput($5101telnetUN, 10, 60, 200, 21)
+	GUICtrlCreateLabel("Telnet Password", 10, 85, 128, 15)
+	$Pass = GUICtrlCreateInput($5101telnetPW, 10, 100, 200, 21, $ES_PASSWORD)
+	$ButtonOK = GUICtrlCreateButton("OK", 10, 130, 95, 25)
+	$ButtonCan = GUICtrlCreateButton("Cancel", 110, 130, 95, 25)
+	GUISetState(@SW_SHOW)
+
+	GUICtrlSetOnEvent($ButtonOK, '_Set5101telnetinfoOK')
+	GUICtrlSetOnEvent($ButtonCan, '_Set5101telnetinfoClose')
+EndFunc   ;==>_Set5101telnetinfo
+
+Func _Set5101telnetinfoOK()
+	$5101telnetIP = GUICtrlRead($ModemIP)
+	$5101telnetUN = GUICtrlRead($User)
+	$5101telnetPW = GUICtrlRead($Pass)
+	$5101telnetSet = 1
+	_Set5101telnetinfoClose()
+EndFunc   ;==>_Set5101telnetinfoOK
+
+Func _Set5101telnetinfoClose()
+	GUIDelete($5101InfoGUI)
+EndFunc   ;==>_Set5101telnetinfoClose
+
+;---> 6120 set ssj info GUI <---
+
+Func _Set6120sshinfo()
+	$6120InfoGUI = GUICreate("6120 Modem Info", 219, 164)
+	GUICtrlCreateLabel("Modem IP", 10, 5, 128, 15)
+	$ModemIP = GUICtrlCreateInput($6120sshIP, 10, 20, 200, 20)
+	GUICtrlCreateLabel("SSH Username", 10, 45, 128, 15)
+	$User = GUICtrlCreateInput($6120sshUN, 10, 60, 200, 21)
+	GUICtrlCreateLabel("SSH Password", 10, 85, 128, 15)
+	$Pass = GUICtrlCreateInput($6120sshPW, 10, 100, 200, 21, $ES_PASSWORD)
+	$ButtonOK = GUICtrlCreateButton("OK", 10, 130, 95, 25)
+	$ButtonCan = GUICtrlCreateButton("Cancel", 110, 130, 95, 25)
+	GUISetState(@SW_SHOW)
+
+	GUICtrlSetOnEvent($ButtonOK, '_Set6120sshinfoOK')
+	GUICtrlSetOnEvent($ButtonCan, '_Set6120sshinfoClose')
+EndFunc   ;==>_Set6120sshinfo
+
+Func _Set6120sshinfoOK()
+	$6120sshIP = GUICtrlRead($ModemIP)
+	$6120sshUN = GUICtrlRead($User)
+	$6120sshPW = GUICtrlRead($Pass)
+	$6120sshSet = 1
+	_Set6120sshinfoClose()
+EndFunc   ;==>_Set6120sshinfoOK
+
+Func _Set6120sshinfoClose()
+	GUIDelete($6120InfoGUI)
+EndFunc   ;==>_Set6120sshinfoClose
+
+;---> Set Modem to selected mac adress <---
+
 Func _Set5100selctedmac()
-	If $5100telnetSet = 0 Then
+	_Setselctedmac("5100")
+EndFunc   ;==>_Set5100selctedmac
+
+Func _Set5101selctedmac()
+	_Setselctedmac("5101")
+EndFunc   ;==>_Set5101selctedmac
+
+Func _Set6120selctedmac()
+	_Setselctedmac("6120")
+EndFunc   ;==>_Set6120selctedmac
+
+Func _Setselctedmac($type)
+	If $5100telnetSet = 0 And $type = "5100" Then
 		MsgBox(0, "Error", "Set 5100 telnet info first")
+	ElseIf $5101telnetSet = 0 And $type = "5101" Then
+		MsgBox(0, "Error", "Set 5101 telnet info first")
+	ElseIf $6120sshSet = 0 And $type = "6120" Then
+		MsgBox(0, "Error", "Set 6120 ssh info first")
 	Else
 		$Selected = _GUICtrlListView_GetNextItem($ConfList); find what config is selected in the list. returns -1 is nothing is selected
 		If $Selected <> "-1" Then
@@ -692,77 +866,220 @@ Func _Set5100selctedmac()
 			If $iRows <> 0 Then ;If Configs found, write to file
 				$mac = $ConfigMatchArray[1][0]
 				GUICtrlSetData($messagebox, "Setting modem mac to " & $mac)
-				_Set5100mac($mac)
-
+				If $type = "5100" Then _Set5100mac($mac)
+				If $type = "5101" Then _Set5101mac($mac)
+				If $type = "6120" Then _Set6120mac($mac)
 			EndIf
 		Else
 			MsgBox(0, "Error", "No config selected")
 		EndIf
 	EndIf
-EndFunc   ;==>_Set5100selctedmac
+EndFunc   ;==>_Setselctedmac
+
+;---> Set Modem to all mac address in the list <---
 
 Func _Set5100toallmacs()
-	If $5100telnetSet = 0 Then
-		MsgBox(0, "Error", "Set 5100 telnet info first")
-	Else
-		Local $ConfigMatchArray, $iRows, $iColumns, $iRval
+	_Settoallmacs("5100")
+EndFunc   ;==>_Set5100toallmacs
 
+Func _Set5101toallmacs()
+	_Settoallmacs("5101")
+EndFunc   ;==>_Set5101toallmacs
+
+Func _Set6120toallmacs()
+	_Settoallmacs("6120")
+EndFunc   ;==>_Set6120toallmacs
+
+Func _Settoallmacs($type)
+	If $5100telnetSet = 0 And $type = "5100" Then
+		MsgBox(0, "Error", "Set 5100 telnet info first")
+	ElseIf $5101telnetSet = 0 And $type = "5101" Then
+		MsgBox(0, "Error", "Set 5101 telnet info first")
+	ElseIf $6120sshSet = 0 And $type = "6120" Then
+		MsgBox(0, "Error", "Set 6120 ssh info first")
+	Else
+		Local $ConfigMatchArray, $iRows, $iColumns, $iRval, $waittime
 		$fldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & '-' & @MIN & '-' & @SEC
 		$file = FileSaveDialog('Save As', '', 'Coma Delimeted File (*.CSV)', '', $fldatetimestamp & '.CSV')
 		If @error <> 1 Then
-			FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
-			$waittime = InputBox("Time to wait before mac change", "Time (in milliseconds)", "25000")
+			If $type = "5100" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "30")
+			If $type = "5101" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "65")
+			If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
+			If Not @error Then
+				GUICtrlSetData($messagebox, "Setting ip to 192,168.100.2")
+				_RunDOS('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+				Sleep(5000)
+				FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
+				$query = "SELECT mac FROM CONFIGDATA"
+				$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
+				If $iRows <> 0 Then ;If Configs found, write to file
+					For $cm = 1 To $iRows
+						;Change modem Mac Adress
+						$mac = $ConfigMatchArray[$cm][0]
+						GUICtrlSetData($messagebox, "Setting modem mac to " & $mac & " (" & _GetTime() & ")")
+						If $type = "5100" Then _Set5100mac($mac)
+						If $type = "5101" Then _Set5101mac($mac)
+						If $type = "6120" Then _Set6120mac($mac)
+						;wait for modem to reboot
+						GUICtrlSetData($messagebox, "Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & " (" & _GetTime() & ")")
+						Sleep($waittime * 1000)
+						;Pull config from modem, write to new configstumbler csv file
+						GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $mac & " (" & _GetTime() & ")")
+						If $type = "5100" Then
+							$webpagesource = _INetGetSource("http://" & $5100telnetIP & ":1337/advanced.html")
+							If StringInStr($webpagesource, 'TFTP config file: ') Then
+								$tws = StringSplit($webpagesource, "TFTP config file: ", 1)
+								;_ArrayDisplay($tws)
+								$tws2 = StringSplit($tws[2], ">", 1)
+								$configname = StringReplace(StringReplace($tws2[1], "<a href='", ""), "</center", "")
+								If StringRight($configname, 1) = "'" Then $configname = StringTrimRight($configname, 1)
+
+								If $configname <> "Not yet provisioned" Then
+									$downfile = "http://" & $5100telnetIP & ":1337/" & $configname
+									$savefile = $ConfDir & $configname & '.cfg'
+									InetGet($downfile, $savefile)
+									$config_destfile = $savefile
+									$configtxt = ""
+									$infostring = ""
+									If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
+										$decodedconfig = _DecodeConfig($savefile)
+										If $decodedconfig <> "" Then $configtxt = $decodedconfig
+										$configinfo = _GetConfigInfo($decodedconfig)
+										If $configinfo <> "" Then $infostring = $configinfo
+									EndIf
+									FileWrite($file, '"' & $mac & '",,,"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+								EndIf
+							EndIf
+						ElseIf $type = "5101" Then
+							$webpagesource = _INetGetSource("http://" & $5101telnetIP & "/overview.html")
+							If StringInStr($webpagesource, '<a href="getcfg.cgi">') Then
+								$tws = StringSplit($webpagesource, '<a href="getcfg.cgi">', 1)
+								$tws2 = StringSplit($tws[2], "</a>", 1)
+								$configname = StringStripWS($tws2[1], 8)
+								$downfile = "http://" & $5101telnetIP & "/getcfg.cgi"
+								$savefile = $ConfDir & $configname & '.cfg'
+								InetGet($downfile, $savefile)
+								$config_destfile = $savefile
+								$configtxt = ""
+								$infostring = ""
+								If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
+									$decodedconfig = _DecodeConfig($savefile)
+									If $decodedconfig <> "" Then $configtxt = $decodedconfig
+									$configinfo = _GetConfigInfo($decodedconfig)
+									If $configinfo <> "" Then $infostring = $configinfo
+								EndIf
+								FileWrite($file, '"' & $mac & '",,,"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+							EndIf
+						ElseIf $type = "6120" Then
+							; Config Download Not Yet Implemented
+						EndIf
+					Next
+				EndIf
+				GUICtrlSetData($messagebox, "Done setting macs ")
+			Else
+				GUICtrlSetData($messagebox, "Error setting time to wait :-/")
+			EndIf
+		EndIf
+	EndIf
+EndFunc   ;==>_Settoallmacs
+
+;---> Change mac address on modem until it gets online <---
+
+Func _Set5100toallmacstilonline()
+	_Settoallmacstilonline("5100")
+EndFunc   ;==>_Set5100toallmacstilonline
+
+Func _Set5101toallmacstilonline()
+	_Settoallmacstilonline("5101")
+EndFunc   ;==>_Set5101toallmacstilonline
+
+Func _Set6120toallmacstilonline()
+	_Settoallmacstilonline("6120")
+EndFunc   ;==>_Set6120toallmacstilonline
+
+Func _Settoallmacstilonline($type)
+	If $5100telnetSet = 0 And $type = "5100" Then
+		MsgBox(0, "Error", "Set 5100 telnet info first")
+	ElseIf $5101telnetSet = 0 And $type = "5101" Then
+		MsgBox(0, "Error", "Set 5101 telnet info first")
+	ElseIf $6120sshSet = 0 And $type = "6120" Then
+		MsgBox(0, "Error", "Set 6120 ssh info first")
+	Else
+		Local $ConfigMatchArray, $iRows, $iColumns, $iRval, $waittime
+		If $type = "5100" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "30")
+		If $type = "5101" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "65")
+		If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
+		If Not @error Then
 			$query = "SELECT mac FROM CONFIGDATA"
 			$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
-			If $iRows <> 0 Then ;If Configs found, write to file
+			If $iRows <> 0 Then
 				For $cm = 1 To $iRows
 					$mac = $ConfigMatchArray[$cm][0]
-					GUICtrlSetData($messagebox, "Setting modem mac to " & $mac)
-					_Set5100mac($mac)
-					Sleep($waittime)
-					$webpagesource = _INetGetSource("http://192.168.100.1:1337/advanced.html")
-					If StringInStr($webpagesource, 'TFTP config file: ') Then
-						$tws = StringSplit($webpagesource, "TFTP config file: ", 1)
-						;_ArrayDisplay($tws)
-						$tws2 = StringSplit($tws[2], ">", 1)
-						$configname = StringReplace(StringReplace($tws2[1], "<a href='", ""), "</center", "")
-						If StringRight($configname, 1) = "'" Then $configname = StringTrimRight($configname, 1)
-
-						If $configname <> "Not yet provisioned" Then
-							$downfile = "http://" & $5100teletIP & ":1337/" & $configname
-							$savefile = $ConfDir & $configname & '.cfg'
-							InetGet($downfile, $savefile)
-							$config_destfile = $savefile
-							$configtxt = ""
-							$infostring = ""
-							If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
-								$decodedconfig = _DecodeConfig($savefile)
-								If $decodedconfig <> "" Then $configtxt2 = $decodedconfig
-								$configinfo = _GetConfigInfo($decodedconfig)
-								If $configinfo <> "" Then $infostring = $configinfo
-							EndIf
-							FileWrite($file, '"' & $mac & '",,,"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
-						EndIf
+					;Change lan ip to static
+					GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to 192.168.100.2")
+					_RunDOS('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+					Sleep(5000);Wait for ip changes
+					;Change Modem Mac Adress
+					GUICtrlSetData($messagebox, _GetTime() & ": Setting modem mac to " & $mac & "(" & $cm & "/" & $iRows & ")")
+					If $type = "5100" Then _Set5100mac($mac)
+					If $type = "5101" Then _Set5101mac($mac)
+					If $type = "6120" Then _Set6120mac($mac)
+					;Change lan ip to dhcp
+					GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to dhcp")
+					_RunDOS('netsh inter ip set address "' & $6120netcon & '" source=dhcp')
+					GUICtrlSetData($messagebox, _GetTime() & ": Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & "(" & $cm & "/" & $iRows & ")")
+					Sleep($waittime * 1000);Wait for modem to boot and dhcp change to take effect
+					;Test Internet Connection
+					GUICtrlSetData($messagebox, _GetTime() & ": Checking internet conntection with mac " & $mac)
+					If _TestInternetConnection() = 1 Then
+						;Modem is online
+						GUICtrlSetData($messagebox, _GetTime() & ": Online with mac " & $mac & "! :-D")
+						Sleep(1000)
+						ExitLoop
 					EndIf
 				Next
 			EndIf
 			GUICtrlSetData($messagebox, "Done setting macs ")
+		Else
+			GUICtrlSetData($messagebox, "Error setting time to wait :-/")
 		EndIf
 	EndIf
-EndFunc   ;==>_Set5100toallmacs
+EndFunc   ;==>_Settoallmacstilonline
+
+Func _TestInternetConnection()
+	$return = 0
+	$s1 = "www.google.com"
+	$s2 = "www.msn.com"
+	$s3 = "www.yahoo.com"
+	Ping($s1)
+	If Not @error Then
+		$return = 1
+	Else
+		Ping($s2)
+		If Not @error Then
+			$return = 1
+		Else
+			Ping($s3)
+			If Not @error Then $return = 1
+		EndIf
+	EndIf
+	Return ($return)
+EndFunc   ;==>_TestInternetConnection
+
+;---> Change mac address on modem <---
 
 Func _Set5100mac($mac)
-	$cmd = '"' & $PuttyEXE & '" -telnet ' & $5100teletUN & '@192.168.100.1'
+	$cmd = '"' & $PuttyEXE & '" -telnet ' & $5100telnetUN & '@' & $5100telnetIP
 	Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
-	WinActivate($5100teletIP & " - PuTTY")
-	WinWaitActive($5100teletIP & " - PuTTY")
+	WinActivate($5100telnetIP & " - PuTTY")
+	WinWaitActive($5100telnetIP & " - PuTTY")
 	Send("{ENTER}")
 	Sleep(50)
-	Send($5100teletUN)
+	Send($5100telnetUN)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(50)
-	Send($5100teletPW)
+	Send($5100telnetPW)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(50)
@@ -784,11 +1101,148 @@ Func _Set5100mac($mac)
 	Send("{ENTER}")
 	Sleep(50)
 	Send("reset")
+	Sleep(50)
 	Send("{ENTER}")
-	Sleep(10000)
-	Send("q")
+	Sleep(1000)
+	While WinExists($5100telnetIP & " - PuTTY")
+		If WinExists("PuTTY Fatal Error") Then
+			WinActive("PuTTY Fatal Error")
+			Send("{ENTER}")
+		EndIf
+		If WinExists("PuTTY Exit Confirmation") Then
+			WinActivate("PuTTY Exit Confirmation")
+			Send("{ENTER}")
+		EndIf
+		If WinExists($5100telnetIP & " - PuTTY") Then
+			WinActivate($5100telnetIP & " - PuTTY")
+			Send("!{F4}")
+		EndIf
+		Sleep(1000)
+	WEnd
 	Return ($mac)
 EndFunc   ;==>_Set5100mac
+
+Func _Set5101mac($mac)
+	$scriptfilename = @ScriptDir & '\5101script.txt'
+	FileDelete($scriptfilename)
+	$scriptfile = $5101telnetIP & ' 23' & @CRLF _
+			 & 'WAIT "Username:"' & @CRLF _
+			 & 'SEND "' & $5101telnetUN & '\m"' & @CRLF _
+			 & 'WAIT "Password:"' & @CRLF _
+			 & 'SEND "' & $5101telnetPW & '\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "cd non-vol\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "cd halif\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "mac_address 1 ' & $mac & '\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "write\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "cd \\\m"' & @CRLF _
+			 & 'WAIT ">"' & @CRLF _
+			 & 'SEND "reset\m"' & @CRLF
+	ConsoleWrite($scriptfile & @CRLF)
+	FileWrite($scriptfilename, $scriptfile)
+
+	$cmd = $TST10EXE & ' /r:"' & $scriptfilename & '" /o:output.txt'
+	RunWait($cmd)
+	FileDelete($scriptfilename)
+	ConsoleWrite($cmd & @CRLF)
+EndFunc   ;==>_Set5101mac
+
+Func _Set6120mac($mac)
+	$cmd = '"' & $PuttyEXE & '" -ssh ' & $6120sshUN & '@' & $6120sshIP
+	$putty = Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
+	WinActivate($6120sshIP & " - PuTTY")
+	WinWaitActive($6120sshIP & " - PuTTY")
+	Sleep(2000)
+	Send($6120sshPW)
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(1000)
+	Send("/usr/sbin/cli docsis/Production/prodset")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(20000)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send(StringReplace($mac, ":", "-"))
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(50)
+	Send("w")
+	Sleep(50)
+	Send("{ENTER}")
+	Sleep(20000)
+	Send("reboot")
+	Sleep(50)
+	Send("{ENTER}")
+	While (WinExists($6120sshIP & " - PuTTY") Or WinExists("PuTTY (inactive)"))
+		If WinExists("PuTTY Fatal Error") Then
+			WinActive("PuTTY Fatal Error")
+			Sleep(1000)
+			Send("{ENTER}")
+		EndIf
+		If WinExists("PuTTY Exit Confirmation") Then
+			WinActivate("PuTTY Exit Confirmation")
+			Sleep(1000)
+			Send("{ENTER}")
+		EndIf
+		If WinExists($6120sshIP & " - PuTTY") Then
+			WinActivate($6120sshIP & " - PuTTY")
+			Sleep(1000)
+			Send("!{F4}")
+		EndIf
+		If WinExists("PuTTY (inactive)") Then
+			WinActivate("PuTTY (inactive)")
+			Sleep(1000)
+			Send("!{F4}")
+		EndIf
+		Sleep(1000)
+	WEnd
+	Return ($mac)
+EndFunc   ;==>_Set6120mac
+
+;---> Test downloding configs from a tftp server in a mac address range
 
 Func _TestMacRangeGUI()
 	$tmrGUI = GUICreate("Scan Mac Range", 219, 256)
@@ -807,7 +1261,7 @@ Func _TestMacRangeGUI()
 	GUICtrlSetOnEvent($rOK, '_TestMacRangeGUIOK')
 	GUICtrlSetOnEvent($rCAN, '_TestMacRangeGUIClose')
 	GUISetState(@SW_SHOW)
-EndFunc
+EndFunc   ;==>_TestMacRangeGUI
 
 Func _TestMacRangeGUIOK()
 	$startmac = GUICtrlRead($rStartMac)
@@ -832,16 +1286,16 @@ Func _TestMacRangeGUIOK()
 			_InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 1, 0)
 		Next
 	Next
-EndFunc
+EndFunc   ;==>_TestMacRangeGUIOK
 
 Func _TestMacRangeGUIClose()
 	GUIDelete($tmrGUI)
-EndFunc
+EndFunc   ;==>_TestMacRangeGUIClose
 
 
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Button Functions
-;---------------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Func _ToggleScanning()
 	If $Scan = 0 Then ;Start Scanning
@@ -852,7 +1306,7 @@ Func _ToggleScanning()
 			GUICtrlSetData($ScanButton, "Stop")
 			GUICtrlSetData($messagebox, "Started - waiting for data")
 		Else
-			GUICtrlSetData($messagebox, "Error binding to ip")
+			GUICtrlSetData($messagebox, "Error binding to ip (" & $DefaultIP & ":" & $UDPport & ")")
 		EndIf
 	Else ;Stop Scanning
 		UDPShutdown()
@@ -881,4 +1335,4 @@ Func _ToggleOverrideTftp()
 		$OverrideTftp = 0
 		GUICtrlSetState($OverrideTftpCheck, $GUI_UNCHECKED)
 	EndIf
-EndFunc   ;==>_ToggleConfigDownload
+EndFunc   ;==>_ToggleOverrideTftp
