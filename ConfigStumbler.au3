@@ -939,70 +939,25 @@ Func _Settoallmacs($type)
 						;wait for modem to reboot
 						GUICtrlSetData($messagebox, "Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & " (" & _GetTime() & ")")
 						Sleep($waittime * 1000)
-						;Pull config from modem, write to new configstumbler csv file
+						;Pull config from modem
 						GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $mac & " (" & _GetTime() & ")")
-						If $type = "5100" Then
-							$webpagesource = _INetGetSource("http://" & $5100telnetIP & ":1337/advanced.html")
-							If StringInStr($webpagesource, 'TFTP config file: ') Then
-								$tws = StringSplit($webpagesource, "TFTP config file: ", 1)
-								;_ArrayDisplay($tws)
-								$tws2 = StringSplit($tws[2], ">", 1)
-								$configname = StringReplace(StringReplace($tws2[1], "<a href='", ""), "</center", "")
-								If StringRight($configname, 1) = "'" Then $configname = StringTrimRight($configname, 1)
-
-								If $configname <> "Not yet provisioned" Then
-									$downfile = "http://" & $5100telnetIP & ":1337/" & $configname
-									$savefile = $ConfDir & $configname & '.cfg'
-									InetGet($downfile, $savefile)
-									$config_destfile = $savefile
-									$configtxt = ""
-									$infostring = ""
-									If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
-										$decodedconfig = _DecodeConfig($savefile)
-										If $decodedconfig <> "" Then $configtxt = $decodedconfig
-										$configinfo = _GetConfigInfo($decodedconfig)
-										If $configinfo <> "" Then $infostring = $configinfo
-									EndIf
-									FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
-								EndIf
-							EndIf
-						ElseIf $type = "5101" Then
-							$webpagesource = _INetGetSource("http://" & $5101telnetIP & "/overview.html")
-							If StringInStr($webpagesource, '<a href="getcfg.cgi">') Then
-								$tws = StringSplit($webpagesource, '<a href="getcfg.cgi">', 1)
-								$tws2 = StringSplit($tws[2], "</a>", 1)
-								$configname = StringStripWS($tws2[1], 8)
-								$downfile = "http://" & $5101telnetIP & "/getcfg.cgi"
-								$savefile = $ConfDir & $configname & '.cfg'
-								InetGet($downfile, $savefile)
-								$config_destfile = $savefile
-								$configtxt = ""
-								$infostring = ""
-								If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
-									$decodedconfig = _DecodeConfig($savefile)
-									If $decodedconfig <> "" Then $configtxt = $decodedconfig
-									$configinfo = _GetConfigInfo($decodedconfig)
-									If $configinfo <> "" Then $infostring = $configinfo
-								EndIf
-								FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
-							EndIf
-						ElseIf $type = "6120" Then
-							$configname = StringReplace($mac, ":", "")
-							$savefile = $ConfDir & $configname & '.cfg'
-							$cmd = '"' & $pscpEXE & '" -pw ' & $6120sshPW & ' ' & $6120sshUN & '@' & $6120sshIP & ':/forceware/config.running "' & $savefile & '"'
-							$pscp = Run($cmd)
-							Sleep(2000)
-							$config_destfile = $savefile
-							$configtxt = ""
-							$infostring = ""
-							If FileExists($config_destfile) Then ;Use DOCSIS.exe to decode config.
-								$decodedconfig = _DecodeConfig($savefile)
-								If $decodedconfig <> "" Then $configtxt = $decodedconfig
-								$configinfo = _GetConfigInfo($decodedconfig)
-								If $configinfo <> "" Then $infostring = $configinfo
-							EndIf
-							FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+						If $type = "5100" Then $conflocinfo = _Get5100config()
+						If $type = "5101" Then $conflocinfo = _Get5101config()
+						If $type = "6120" Then $conflocinfo = _Get6120config($mac)
+						;Decode config file downloaded above
+						$configtxt = ""
+						$configname = ""
+						$infostring = ""
+						If $conflocinfo[0] = 1 Then
+							$config_destfile = $conflocinfo[1]
+							$configname = $conflocinfo[2]
+							$decodedconfig = _DecodeConfig($config_destfile)
+							If $decodedconfig <> "" Then $configtxt = $decodedconfig
+							$configinfo = _GetConfigInfo($decodedconfig)
+							If $configinfo <> "" Then $infostring = $configinfo
 						EndIf
+						;write to new configstumbler csv file
+						FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
 					Next
 				EndIf
 				GUICtrlSetData($messagebox, "Done setting macs ")
@@ -1181,6 +1136,7 @@ Func _Set5101mac($mac)
 	ConsoleWrite($cmd & @CRLF)
 EndFunc   ;==>_Set5101mac
 
+
 Func _Set6120mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -ssh ' & $6120sshUN & '@' & $6120sshIP
 	$putty = Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
@@ -1225,6 +1181,66 @@ Func _Set6120mac($mac)
 	Return ($mac)
 EndFunc   ;==>_Set6120mac
 
+Func _Get5100config()
+	Local $return[3]
+	$return[0] = "0"
+	$webpagesource = _INetGetSource("http://" & $5100telnetIP & ":1337/advanced.html")
+	If StringInStr($webpagesource, 'TFTP config file: ') Then
+		$tws = StringSplit($webpagesource, "TFTP config file: ", 1)
+		;_ArrayDisplay($tws)
+		$tws2 = StringSplit($tws[2], ">", 1)
+		$configname = StringReplace(StringReplace($tws2[1], "<a href='", ""), "</center", "")
+		If StringRight($configname, 1) = "'" Then $configname = StringTrimRight($configname, 1)
+
+		If $configname <> "Not yet provisioned" Then
+			$downfile = "http://" & $5100telnetIP & ":1337/" & $configname
+			$savefile = $ConfDir & $configname & '.cfg'
+			InetGet($downfile, $savefile)
+			If FileExists($savefile) Then
+				$return[0] = "1"
+				$return[1] = $savefile
+				$return[2] = $configname
+			EndIf
+		EndIf
+	EndIf
+	Return $return
+EndFunc
+
+Func _Get5101config()
+	Local $return[3]
+	$return[0] = "0"
+	$webpagesource = _INetGetSource("http://" & $5101telnetIP & "/overview.html")
+	If StringInStr($webpagesource, '<a href="getcfg.cgi">') Then
+		$tws = StringSplit($webpagesource, '<a href="getcfg.cgi">', 1)
+		$tws2 = StringSplit($tws[2], "</a>", 1)
+		$configname = StringStripWS($tws2[1], 8)
+		$downfile = "http://" & $5101telnetIP & "/getcfg.cgi"
+		$savefile = $ConfDir & $configname & '.cfg'
+		InetGet($downfile, $savefile)
+		If FileExists($savefile) Then
+			$return[0] = "1"
+			$return[1] = $savefile
+			$return[2] = $configname
+		EndIf
+	EndIf
+	Return $return
+EndFunc
+
+Func _Get6120config($mac)
+	Local $return[3]
+	$return[0] = "0"
+	$configname = StringReplace($mac, ":", "")
+	$savefile = $ConfDir & $configname & '.cfg'
+	$cmd = '"' & $pscpEXE & '" -pw ' & $6120sshPW & ' ' & $6120sshUN & '@' & $6120sshIP & ':/forceware/config.running "' & $savefile & '"'
+	$pscp = Run($cmd)
+	Sleep(2000)
+	If FileExists($savefile) Then
+		$return[0] = "1"
+		$return[1] = $savefile
+		$return[2] = $configname
+	EndIf
+	Return $return
+EndFunc
 ;---> Test downloding configs from a tftp server in a mac address range
 
 Func _TestMacRangeGUI()
