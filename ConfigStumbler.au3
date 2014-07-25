@@ -29,6 +29,7 @@ Dim $UDPport = 68
 Dim $DefaultIntMenuID = '-1'
 Dim $Scan = 0
 Dim $DocsisDecoder = 0
+Dim $SortColumn = -1
 
 ;Settings file
 Dim $settings = @ScriptDir & '\settings.ini'
@@ -82,7 +83,7 @@ Dim $InterfaceMenuName_Array[1]
 Dim $InterfaceMenuIP_Array[1]
 Dim $RefreshInterfaces
 
-Dim $tmrGUI, $rTftp, $rMacPre, $rMacSuf, $rStartMac, $rEndMac
+Dim $tmrGUI, $iTFTP, $iPrefix, $iSuffix, $iStartMac, $iEndMac, $iWaitTime, $rNone, $rTFTP, $rSB5100, $rSB5101, $rSB6120
 Dim $startmac = IniRead($settings, 'ScanMacRange', 'startmac', "00:00:00:00:00:00")
 Dim $endmac = IniRead($settings, 'ScanMacRange', 'endmac', "00:00:00:00:00:00")
 Dim $macpre = IniRead($settings, 'ScanMacRange', 'macpre', "")
@@ -91,9 +92,23 @@ Dim $mactftp = IniRead($settings, 'ScanMacRange', 'mactftp', "")
 
 FileWrite($configfile, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 
+;Set up temp config database
 $fldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & '-' & @MIN & '-' & @SEC
 $DB = $TmpDir & $fldatetimestamp & '.SDB'
 _SetUpDbTables($DB)
+
+Dim $ManuDB = @ScriptDir & '\Manufacturers.sdb'
+Dim $ManuDBhndl
+;Connect to manufacturer database
+If FileExists($ManuDB) Then
+	$ManuDBhndl = _SQLite_Open($ManuDB, $SQLITE_OPEN_READWRITE + $SQLITE_OPEN_CREATE, $SQLITE_ENCODING_UTF16)
+Else
+	$ManuDBhndl = _SQLite_Open($ManuDB, $SQLITE_OPEN_READWRITE + $SQLITE_OPEN_CREATE, $SQLITE_ENCODING_UTF16)
+	_SQLite_Exec($ManuDBhndl, "CREATE TABLE Manufacturers (BSSID,Manufacturer)")
+	_SQLite_Exec($ManuDBhndl, "pragma synchronous=0");Speed vs Data security. Speed Wins for now.
+EndIf
+
+;---GUI---
 
 $ConfigStumbler = GUICreate($Program_Name & ' ' & $Program_Version, 443, 250, -1, -1, BitOR($WS_OVERLAPPEDWINDOW, $WS_CLIPSIBLINGS))
 
@@ -144,15 +159,18 @@ $OverrideTftpIpBox = GUICtrlCreateInput($OverrideTftpIP, 225, 24, 150, 20)
 
 
 ;GUICtrlSetResizing ($messagebox, $GUI_DOCKBORDERS)
-$ConfList = GUICtrlCreateListView("#|Mac|Client|TFTP Server|Config|Info|Times seen", 0, 65, 441, 165, $LVS_REPORT + $LVS_SINGLESEL, $LVS_EX_HEADERDRAGDROP + $LVS_EX_GRIDLINES + $LVS_EX_FULLROWSELECT)
+$ConfList = GUICtrlCreateListView("#|Mac|Manufacturer|Client|TFTP Server|Config|Info|Times seen", 0, 65, 441, 165, $LVS_REPORT + $LVS_SINGLESEL, $LVS_EX_HEADERDRAGDROP + $LVS_EX_GRIDLINES + $LVS_EX_FULLROWSELECT)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 0, 30)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 1, 110)
-GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 2, 95)
+GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 2, 110)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 3, 95)
-GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 4, 175)
-GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 5, 375)
-GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 6, 50)
+GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 4, 95)
+GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 5, 175)
+GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 6, 375)
+GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 7, 50)
 GUICtrlSetResizing($ConfList, $GUI_DOCKBORDERS)
+Dim $Direction[8];Direction array for sorting by clicking on the header. Needs to be 1 greatet (or more) than the amount of columns
+GUICtrlSetOnEvent($ConfList, '_SortColumnToggle')
 
 GUISetOnEvent($GUI_EVENT_CLOSE, '_Exit')
 GUICtrlSetOnEvent($FileSave, '_ExportList')
@@ -203,6 +221,7 @@ GUISetState(@SW_SHOW)
 ;Program Running Loop
 While 1
 	If $Scan = 1 Then _ReadUDPdata()
+	If $SortColumn <> -1 Then _HeaderSort($SortColumn);Sort clicked listview column
 	Sleep(10)
 WEnd
 
@@ -214,18 +233,30 @@ Func _SetUpDbTables($dbfile)
 	_SQLite_Startup()
 	$DBhndl = _SQLite_Open($dbfile)
 	_SQLite_Exec($DBhndl, "pragma synchronous=0");Speed vs Data security. Speed Wins for now.
-	_SQLite_Exec($DBhndl, "CREATE TABLE CONFIGDATA (configid,line,config,client,tftp,mac,info,times,configtxt)")
+	_SQLite_Exec($DBhndl, "CREATE TABLE CONFIGDATA (configid,line,config,client,tftp,mac,manu,info,times,configtxt)")
 EndFunc   ;==>_SetUpDbTables
 
 Func _ReadUDPdata()
 	$udpdata = UDPRecv($UDPsocket, 500)
 	If $udpdata <> "" Then
 		FileWrite($logfile, $udpdata & @CRLF)
-		_CheckData($udpdata)
+		$InData = _CheckData($udpdata)
+		If $InData[0] = 1 Then
+			$mac = $InData[1] ;Modem Mac Address
+			$client = $InData[2] ;Client IP
+			$tftp = $InData[3] ;TFTP IP
+			$config = $InData[4] ;Config Name
+			$InsertData = _InsertIntoDB($config, $client, $tftp, $mac)
+			If $InsertData[0] = 1 And $AutoDownloadConfigs = 1 Then
+				$fconfigid = $InsertData[1] ;DB Config ID
+				_UpdateTftpInfoInDB($fconfigid, $tftp, $config)
+			EndIf
+		EndIf
 	EndIf
 EndFunc   ;==>_ReadUDPdata
 
 Func _CheckData($data)
+	Local $UdpDataArr[5]
 	ConsoleWrite(BinaryLen($data) & 'bytes ' & StringLen($data) & 'chars - ' & $data & @CRLF)
 	GUICtrlSetData($messagebox, 'UDP Data: ' & BinaryLen($data) & ' bytes (' & _GetTime() & ')')
 	;Get data from UDP Hex String
@@ -246,77 +277,121 @@ Func _CheckData($data)
 		WEnd
 		$config = _HexToString($confighex)
 
-		_InsertIntoDB($config, $client, $tftp, $mac)
+		$UdpDataArr[0] = 1
+		$UdpDataArr[1] = $mac ;Modem Mac Address
+		$UdpDataArr[2] = $client ;Client IP
+		$UdpDataArr[3] = $tftp ;TFTP IP
+		$UdpDataArr[4] = $config ;Config Name
+	Else
+		$UdpDataArr[0] = 0 ;Not results found, sting not long enough
 	EndIf
+	Return($UdpDataArr)
 EndFunc   ;==>_CheckData
 
-Func _InsertIntoDB($config, $client, $tftp, $mac, $infostring = "", $configtxt = "", $TimesSeen = 1, $AddIfBlank = 1)
-	Local $Add = 1
+Func _InsertIntoDB($config, $client, $tftp, $mac, $infostring = "", $configtxt = "", $TimesSeen = 1)
+	Local $InsertReturn[2]
 	If $OverrideTftp = 1 Then $tftp = GUICtrlRead($OverrideTftpIpBox)
 	$mac = StringReplace(StringReplace(StringUpper($mac), ":", ""), "-", "")
 	$mac = StringMid($mac, 1, 2) & ":" & StringMid($mac, 3, 2) & ":" & StringMid($mac, 5, 2) & ":" & StringMid($mac, 7, 2) & ":" & StringMid($mac, 9, 2) & ":" & StringMid($mac, 11, 2)
 	Local $ConfigMatchArray, $iRows, $iColumns, $iRval
-	$query = "SELECT configid, line, times, info FROM CONFIGDATA WHERE mac='" & $mac & "' And client='" & $client & "' And tftp='" & $tftp & "' And config='" & $config & "' limit 1"
+	$query = "SELECT configid, line, times, info, configtxt FROM CONFIGDATA WHERE mac='" & $mac & "' And client='" & $client & "' And tftp='" & $tftp & "' And config='" & $config & "' limit 1"
 	$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
 	If $iRows = 0 Then ;If config is not found then add it
 		GUICtrlSetData($messagebox, 'New config found: ' & $config & ' (' & _GetTime() & ')')
-		;Get config file
-		If $AutoDownloadConfigs = 1 Then
-			$config_destname = StringRegExpReplace($config, '[/\\:?"><!]', '_') & '.cfg'
-			$config_destfile = $ConfDir & $config_destname
-			$tftpget = _GetConfigTFTP($tftp, $config, $config_destfile)
-			If $tftpget = 1 Then
-				$decodedconfig = _DecodeConfig($config_destfile)
-				If $decodedconfig <> "" Then $configtxt = $decodedconfig
-				$configinfo = _GetConfigInfo($decodedconfig)
-				If $configinfo <> "" Then $infostring = $configinfo
-			EndIf
-		EndIf
-		If $AddIfBlank = 0 And $configtxt = "" Then $Add = 0
-		If $Add = 1 Then
-			;Add into list
-			$ConfigID += 1
-			$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
-			_ListViewAdd($ListRow, $ConfigID, $mac, $client, $tftp, $config, $infostring, $TimesSeen)
-			;Add into DB
-			GUICtrlSetData($messagebox, 'Inserting into DB')
-			$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','" & $client & "','" & $tftp & "','" & $mac & "','" & $infostring & "','" & $TimesSeen & "','" & $configtxt & "');"
-			_SQLite_Exec($DBhndl, $query)
-			;Log line
-			GUICtrlSetData($messagebox, 'Inserting into Log')
-			FileWrite($configfile, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $config & '","' & $infostring & '",' & $TimesSeen & ',' & StringToBinary($configtxt) & @CRLF)
-		EndIf
+		$NewConfig = 1
+		;Get Manufacturer
+		$Manufacturer = _FindManufacturer($mac)
+		;Add into list
+		$ConfigID += 1
+		$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
+		_ListViewAdd($ListRow, $ConfigID, $mac, $Manufacturer, $client, $tftp, $config, $infostring, $TimesSeen)
+		;Add into DB
+		GUICtrlSetData($messagebox, 'Inserting into DB')
+		$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,manu,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','" & $client & "','" & $tftp & "','" & $mac & "','" & $Manufacturer & "','" & $infostring & "','" & $TimesSeen & "','" & $configtxt & "');"
+		_SQLite_Exec($DBhndl, $query)
+		;Log line
+		GUICtrlSetData($messagebox, 'Inserting into Log')
+		FileWrite($configfile, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $config & '","' & $infostring & '",' & $TimesSeen & ',' & StringToBinary($configtxt) & @CRLF)
+		;Set return
+		$InsertReturn[0] = 1 ;Set as new
+		$InsertReturn[1] = $ConfigID ;set config id
 	Else
 		GUICtrlSetData($messagebox, 'Config already exists: ' & $config & ' (' & _GetTime() & ')')
 		$FoundConfigID = $ConfigMatchArray[1][0]
 		$FoundLine = $ConfigMatchArray[1][1]
 		$FoundTimes = $ConfigMatchArray[1][2] + $TimesSeen ;Add $TimeSeen to last found number
 		$FoundInfo = $ConfigMatchArray[1][3]
-		If $FoundInfo = "" Then
-			If $AutoDownloadConfigs = 1 Then
-				$config_destname = StringRegExpReplace($config, '[/\\:?"><!]', '_') & '.cfg'
-				$config_destfile = $ConfDir & $config_destname
-				$tftpget = _GetConfigTFTP($tftp, $config, $config_destfile)
-				If $tftpget = 1 Then
-					$decodedconfig = _DecodeConfig($config_destfile)
-					If $decodedconfig <> "" Then
-						$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $FoundConfigID & "'"
-						_SQLite_Exec($DBhndl, $query)
-					EndIf
-					$configinfo = _GetConfigInfo($decodedconfig)
-					If $configinfo <> "" Then
-						$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $FoundConfigID & "'"
-						_SQLite_Exec($DBhndl, $query)
-						_ListViewAdd($FoundLine, "", "", "", "", "", $infostring, "")
-					EndIf
-				EndIf
-			EndIf
-		EndIf
-		_ListViewAdd($FoundLine, "", "", "", "", "", "", $FoundTimes)
-		$query = "UPDATE CONFIGDATA SET times='" & $FoundTimes & "' WHERE configid = '" & $FoundConfigID & "'"
+		$FoundConfigtxt = $ConfigMatchArray[1][3]
+
+		If $FoundInfo = "" And $infostring <> "" Then $FoundInfo = $infostring
+		If $FoundConfigtxt = "" And $configtxt <> "" Then $FoundConfigtxt = $configtxt
+		_ListViewAdd($FoundLine, "", "", "", "", "", "", $FoundInfo, $FoundTimes)
+		$query = "UPDATE CONFIGDATA SET times='" & $FoundTimes & "', info='" & $FoundInfo & "', configtxt='" & $FoundConfigtxt & "' WHERE configid = '" & $FoundConfigID & "'"
 		_SQLite_Exec($DBhndl, $query)
+		$InsertReturn[0] = 0
+		$InsertReturn[1] = $FoundConfigID
 	EndIf
+	Return($InsertReturn)
 EndFunc   ;==>_InsertIntoDB
+
+Func _ListViewAdd($line, $Add_CID = '', $Add_mac = '', $Add_manu = '', $Add_client = '', $Add_tftp = '', $Add_config = '', $Add_info = '', $Add_times = '')
+	If $Add_CID <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_CID, 0)
+	If $Add_mac <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_mac, 1)
+	If $Add_manu <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_manu, 2)
+	If $Add_client <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_client, 3)
+	If $Add_tftp <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_tftp, 4)
+	If $Add_config <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_config, 5)
+	If $Add_info <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_info, 6)
+	If $Add_times <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_times, 7)
+EndFunc   ;==>_ListViewAdd
+
+Func _UpdateTftpInfoInDB($configid, $tftp, $config)
+	Local $Updated = 0
+	$TftpResults = _TFTPDownload($tftp, $config)
+	If $TftpResults[0] = 1 Then
+		$config_destfile = $TftpResults[1]
+		$decodedconfig = $TftpResults[2]
+		$configinfo = $TftpResults[3]
+		Local $ConfigMatchArray, $iRows, $iColumns, $iRval
+		$query = "SELECT configid, line FROM CONFIGDATA WHERE configid='" & $configid & "' limit 1"
+		$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
+		If $iRows = 1 Then
+			$FoundConfigID = $ConfigMatchArray[1][0]
+			$FoundLine = $ConfigMatchArray[1][1]
+			;Update info in database
+			If $decodedconfig <> "" Then
+				$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $configid & "'"
+				_SQLite_Exec($DBhndl, $query)
+			EndIf
+			If $configinfo <> "" Then
+				$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $configid & "'"
+				_SQLite_Exec($DBhndl, $query)
+			EndIf
+			;Update Listview
+			_ListViewAdd($FoundLine, "", "", "", "", $tftp, $config, $configinfo, "")
+			$Updated = 1
+		EndIf
+	EndIf
+	Return($Updated)
+EndFunc
+
+Func _TFTPDownload($tftp, $config)
+	Local $result[4]
+	$config_destname = StringRegExpReplace($config, '[/\\:?"><!]', '_') & '.cfg'
+	$config_destfile = $ConfDir & $config_destname
+	$tftpget = _GetConfigTFTP($tftp, $config, $config_destfile)
+	If $tftpget = 1 Then
+		$decodedconfig = _DecodeConfig($config_destfile)
+		$configinfo = _GetConfigInfo($decodedconfig)
+		$result[0] = 1
+		$result[1] = $config_destfile
+		$result[2] = $decodedconfig
+		$result[3] = $configinfo
+	Else
+		$result[0] = 0
+	EndIf
+	Return($result)
+EndFunc
 
 Func _GetConfigTFTP($tftp_server, $tftp_configfile, $local_configfile)
 	GUICtrlSetData($messagebox, 'Downloading config: ' & $tftp_configfile & ' (' & _GetTime() & ')')
@@ -403,15 +478,20 @@ Func _GetConfigInfo($decoded_config)
 	Return ($configinfo)
 EndFunc   ;==>_GetConfigInfo
 
-Func _ListViewAdd($line, $Add_CID = '', $Add_mac = '', $Add_client = '', $Add_tftp = '', $Add_config = '', $Add_info = '', $Add_times = '')
-	If $Add_CID <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_CID, 0)
-	If $Add_mac <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_mac, 1)
-	If $Add_client <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_client, 2)
-	If $Add_tftp <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_tftp, 3)
-	If $Add_config <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_config, 4)
-	If $Add_info <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_info, 5)
-	If $Add_times <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_times, 6)
-EndFunc   ;==>_ListViewAdd
+Func _FindManufacturer($findmac);Returns Manufacturer for given Mac Address
+	$findmac = StringReplace($findmac, ':', '')
+	If StringLen($findmac) <> 6 Then $findmac = StringTrimRight($findmac, StringLen($findmac) - 6)
+	Local $ManuMatchArray, $iRows, $iColumns, $iRval
+	$query = "SELECT Manufacturer FROM Manufacturers WHERE BSSID = '" & $findmac & "'"
+	$iRval = _SQLite_GetTable2d($ManuDBhndl, $query, $ManuMatchArray, $iRows, $iColumns)
+	$FoundManuMatch = $iRows
+	If $FoundManuMatch = 0 Then
+		Return ("Unknown")
+	Else
+		$Manu = $ManuMatchArray[1][0]
+		Return ($Manu)
+	EndIf
+EndFunc   ;==>_FindManufacturer
 
 Func _GetTime()
 	$ldatetimestamp = StringFormat("%04i", @YEAR) & '/' & StringFormat("%02i", @MON) & '/' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & ':' & @MIN & ':' & @SEC
@@ -462,7 +542,18 @@ Func _LoadLogTXT()
 		For $Load = 1 To $totallines
 			$linein = FileReadLine($logfile, $Load);Open Line in file
 			$ldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & ':' & @MIN & ':' & @SEC
-			_CheckData($linein)
+			$InData = _CheckData($linein)
+			If $InData[0] = 1 Then
+				$mac = $InData[1] ;Modem Mac Address
+				$client = $InData[2] ;Client IP
+				$tftp = $InData[3] ;TFTP IP
+				$config = $InData[4] ;Config Name
+				$InsertData = _InsertIntoDB($config, $client, $tftp, $mac)
+				If $InsertData[0] = 1 And $AutoDownloadConfigs = 1 Then
+					$fconfigid = $InsertData[1] ;DB Config ID
+					_UpdateTftpInfoInDB($fconfigid, $tftp, $config)
+				EndIf
+			EndIf
 		Next
 		FileClose($logfile)
 		GUICtrlSetData($messagebox, "Done loading file")
@@ -531,6 +622,15 @@ Func _Exit()
 	IniWrite($settings, 'WindowPositions', 'State', $State)
 	IniWrite($settings, 'WindowPositions', 'Position', $Position)
 	;End Get Window Postions
+	UpdateSettingIni()
+
+	_SQLite_Close($DBhndl)
+	_SQLite_Shutdown()
+	FileDelete($DB)
+	Exit
+EndFunc   ;==>_Exit
+
+Func UpdateSettingIni()
 	IniWrite($settings, 'Settings', 'DefaultName', $DefaultName)
 	IniWrite($settings, 'Settings', 'DefaultIP', $DefaultIP)
 	IniWrite($settings, 'Settings', 'AutoDownloadConfigs', $AutoDownloadConfigs)
@@ -555,12 +655,7 @@ Func _Exit()
 	IniWrite($settings, 'ScanMacRange', 'macpre', $macpre)
 	IniWrite($settings, 'ScanMacRange', 'macsuf', $macsuf)
 	IniWrite($settings, 'ScanMacRange', 'mactftp', $mactftp)
-
-	_SQLite_Close($DBhndl)
-	_SQLite_Shutdown()
-	FileDelete($DB)
-	Exit
-EndFunc   ;==>_Exit
+EndFunc
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Edit Menu Functions
@@ -1136,7 +1231,6 @@ Func _Set5101mac($mac)
 	ConsoleWrite($cmd & @CRLF)
 EndFunc   ;==>_Set5101mac
 
-
 Func _Set6120mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -ssh ' & $6120sshUN & '@' & $6120sshIP
 	$putty = Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
@@ -1180,6 +1274,8 @@ Func _Set6120mac($mac)
 	WEnd
 	Return ($mac)
 EndFunc   ;==>_Set6120mac
+
+;---> Download config from modem <---
 
 Func _Get5100config()
 	Local $return[3]
@@ -1241,39 +1337,55 @@ Func _Get6120config($mac)
 	EndIf
 	Return $return
 EndFunc
+
 ;---> Test downloding configs from a tftp server in a mac address range
 
 Func _TestMacRangeGUI()
-	$tmrGUI = GUICreate("Scan Mac Range", 219, 256)
-	GUICtrlCreateLabel("TFTP Server", 10, 10, 200, 15)
-	$rTftp = GUICtrlCreateInput($mactftp, 10, 25, 200, 21)
-	GUICtrlCreateLabel("Mac Prefix", 10, 50, 200, 15)
-	$rMacPre = GUICtrlCreateInput($macpre, 10, 65, 200, 21)
-	GUICtrlCreateLabel("Mac Suffix", 10, 90, 200, 15)
-	$rMacSuf = GUICtrlCreateInput($macsuf, 10, 105, 200, 21)
-	GUICtrlCreateLabel("Start Mac", 10, 130, 200, 15)
-	$rStartMac = GUICtrlCreateInput($startmac, 10, 145, 200, 21)
-	GUICtrlCreateLabel("EndMac", 10, 170, 200, 15)
-	$rEndMac = GUICtrlCreateInput($endmac, 10, 185, 200, 21)
-	$rOK = GUICtrlCreateButton("Start", 8, 215, 95, 25, $WS_GROUP)
-	$rCAN = GUICtrlCreateButton("Cancel", 114, 215, 95, 25, $WS_GROUP)
+	$tmrGUI = GUICreate("Scan Mac Range", 406, 409, 192, 114)
+	GUICtrlCreateGroup("Brute Force Method", 17, 10, 369, 245)
+	$rNone = GUICtrlCreateRadio("None - Just load mac addresses into list", 27, 30, 350, 17)
+	$rTFTP = GUICtrlCreateRadio("TFTP - base config on prefix and suffix, download from tftp", 27, 50, 350, 17)
+	GUICtrlCreateLabel("TFTP Server:", 57, 75, 68, 17)
+	$iTFTP = GUICtrlCreateInput($mactftp, 137, 70, 225, 21)
+	GUICtrlCreateLabel("Mac Prefix", 57, 100, 54, 17)
+	$iPrefix = GUICtrlCreateInput($macpre, 137, 95, 225, 21)
+	GUICtrlCreateLabel("Mac Suffix", 57, 125, 54, 17)
+	$iSuffix = GUICtrlCreateInput($macsuf, 137, 120, 225, 21)
+	$rSB5100 = GUICtrlCreateRadio("SB5100 - Change mac using telnet, download config from modem", 27, 150, 350, 17)
+	$rSB5101 = GUICtrlCreateRadio("SB5101 - Change mac using telnet, download config from modem", 27, 170, 350, 17)
+	$rSB6120 = GUICtrlCreateRadio("SB6120 - Change mac using ssh, download config from modem", 27, 190, 350, 17)
+	GUICtrlCreateLabel("Wait until online:", 51, 220, 82, 17)
+	$iWaitTime = GUICtrlCreateInput("Input1", 139, 215, 225, 21)
+	$Group2 = GUICtrlCreateGroup("Mac Range to Scan", 16, 264, 369, 97)
+	GUICtrlCreateLabel("Start Mac", 30, 302, 50, 17)
+	$iStartMac = GUICtrlCreateInput($startmac, 110, 297, 225, 21)
+	GUICtrlCreateLabel("End Mac", 30, 327, 47, 17)
+	$iEndMac = GUICtrlCreateInput($endmac, 110, 322, 225, 21)
+	$rOK = GUICtrlCreateButton("Start", 8, 370, 95, 25, $WS_GROUP)
+	$rCAN = GUICtrlCreateButton("Cancel", 114, 370, 95, 25, $WS_GROUP)
 	GUICtrlSetOnEvent($rOK, '_TestMacRangeGUIOK')
 	GUICtrlSetOnEvent($rCAN, '_TestMacRangeGUIClose')
 	GUISetState(@SW_SHOW)
 EndFunc   ;==>_TestMacRangeGUI
 
 Func _TestMacRangeGUIOK()
-	$startmac = GUICtrlRead($rStartMac)
+	$startmac = GUICtrlRead($iStartMac)
 	$startmacf = StringReplace(StringReplace($startmac, ":", ""), "-", "")
 	$startmac1 = '0x' & StringLeft($startmacf, 6)
 	$startmac2 = '0x' & StringRight($startmacf, 6)
-	$endmac = GUICtrlRead($rEndMac)
+	$endmac = GUICtrlRead($iEndMac)
 	$endmacf = StringReplace(StringReplace($endmac, ":", ""), "-", "")
 	$endmac1 = '0x' & StringLeft($endmacf, 6)
 	$endmac2 = '0x' & StringRight($endmacf, 6)
-	$macpre = GUICtrlRead($rMacPre)
-	$macsuf = GUICtrlRead($rMacSuf)
-	$mactftp = GUICtrlRead($rTftp)
+	$macpre = GUICtrlRead($iPrefix)
+	$macsuf = GUICtrlRead($iSuffix)
+	$mactftp = GUICtrlRead($iTFTP)
+	$wait = GuiCtrlRead($iWaitTime)
+	$radnone = GuiCtrlRead($rNone)
+	$radtftp = GuiCtrlRead($rTFTP)
+	$rad5100 = GuiCtrlRead($rSB5100)
+	$rad5101 = GuiCtrlRead($rSB5101)
+	$rad6120 = GuiCtrlRead($rSB6120)
 	_TestMacRangeGUIClose()
 	For $ml = $startmac1 To $endmac1
 		$manhex = Hex($ml, 6)
@@ -1282,7 +1394,55 @@ Func _TestMacRangeGUIOK()
 			$fullmac = $manhex & $chex
 			$configname = $macpre & StringLower($fullmac) & $macsuf
 			GUICtrlSetData($messagebox, $fullmac)
-			_InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 1, 0)
+			ConsoleWrite('-------------------' & @CRLF)
+			ConsoleWrite($radnone & @CRLF)
+			ConsoleWrite($radtftp & @CRLF)
+			ConsoleWrite($rad5100 & @CRLF)
+			ConsoleWrite($rad5101 & @CRLF)
+			ConsoleWrite($rad6120 & @CRLF)
+			If $radnone = 1 Then
+				_InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
+			ElseIf $radtftp = 1 Then
+				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
+				$fconfigid = $InsertData[1] ;DB Config ID
+				_UpdateTftpInfoInDB($fconfigid, $mactftp, $configname);Update TFTP info
+			ElseIf $rad5100 = 1 Then
+				_Set5100mac($fullmac)
+				Sleep($wait)
+				$ConfData = _Get5100config()
+				Local $decodedconfig = "", $configinfo = ""
+				If $ConfData[0] = 1 Then
+					$savefile = $ConfData[1]
+					$configname = $ConfData[2]
+					$decodedconfig = _DecodeConfig($savefile)
+					$configinfo = _GetConfigInfo($decodedconfig)
+				EndIf
+				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
+			ElseIf $rad5101 = 1 Then
+				_Set5101mac($fullmac)
+				Sleep($wait)
+				$ConfData = _Get5101config()
+				Local $decodedconfig = "", $configinfo = ""
+				If $ConfData[0] = 1 Then
+					$savefile = $ConfData[1]
+					$configname = $ConfData[2]
+					$decodedconfig = _DecodeConfig($savefile)
+					$configinfo = _GetConfigInfo($decodedconfig)
+				EndIf
+				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
+			ElseIf $rad6120 = 1 Then
+				_Set6120mac($fullmac)
+				Sleep($wait)
+				$ConfData = _Get6120config($fullmac)
+				Local $decodedconfig = "", $configinfo = ""
+				If $ConfData[0] = 1 Then
+					$savefile = $ConfData[1]
+					$configname = $ConfData[2]
+					$decodedconfig = _DecodeConfig($savefile)
+					$configinfo = _GetConfigInfo($decodedconfig)
+				EndIf
+				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
+			EndIf
 		Next
 	Next
 EndFunc   ;==>_TestMacRangeGUIOK
@@ -1379,3 +1539,32 @@ Func _ImportConfigFolder()
 		Next
 	EndIf
 EndFunc   ;==>_ImportConfigFile
+
+Func _SortColumnToggle(); Sets the conf list column header that was clicked
+	$SortColumn = GUICtrlGetState($ConfList)
+EndFunc   ;==>_SortColumnToggle
+
+Func _HeaderSort($column);Sort a column in conf list
+	If $Direction[$column] = 0 Then
+		Dim $v_sort = False;set descending
+	Else
+		Dim $v_sort = True;set ascending
+	EndIf
+	If $Direction[$column] = 0 Then
+		$Direction[$column] = 1
+	Else
+		$Direction[$column] = 0
+	EndIf
+	_GUICtrlListView_SimpleSort($ConfList, $v_sort, $column)
+	_FixLineNumbers()
+	$SortColumn = -1
+EndFunc   ;==>_HeaderSort
+
+Func _FixLineNumbers();Update Listview Row Numbers in DataArray
+	$ListViewSize = _GUICtrlListView_GetItemCount($ConfList) - 1; Get List Size
+	For $lisviewrow = 0 To $ListViewSize
+		$LINENUM = _GUICtrlListView_GetItemText($ConfList, $lisviewrow, 0)
+		$query = "UPDATE CONFIGDATA SET line = '" & $lisviewrow & "' WHERE configid = '" & $LINENUM & "'"
+		_SQLite_Exec($DBhndl, $query)
+	Next
+EndFunc   ;==>_FixLineNumbers
