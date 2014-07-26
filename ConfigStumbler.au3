@@ -1,7 +1,7 @@
 #RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.2"
+$Program_Version = "0.8.2.1"
 $Last_Modified = "2013-06-27"
 $By = "TheMHC"
 ;-----------------------------------
@@ -1505,7 +1505,7 @@ Func _ImportConfigFile()
 		;Add into list
 		$ConfigID += 1
 		$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
-		_ListViewAdd($ListRow, $ConfigID, "", "", "", $config, $infostring, 1)
+		_ListViewAdd($ListRow, $ConfigID, "", "", "", "", $config, $infostring, 1)
 		;Add into DB
 		GUICtrlSetData($messagebox, 'Inserting into DB')
 		$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','','','','" & $infostring & "','1','" & $decodedconfig & "');"
@@ -1528,7 +1528,7 @@ Func _ImportConfigFolder()
 			;Add into list
 			$ConfigID += 1
 			$ListRow = _GUICtrlListView_InsertItem($ConfList, $ConfigID, -1)
-			_ListViewAdd($ListRow, $ConfigID, "", "", "", $config, $infostring, 1)
+			_ListViewAdd($ListRow, $ConfigID, "", "", "", "", $config, $infostring, 1)
 			;Add into DB
 			GUICtrlSetData($messagebox, 'Inserting into DB')
 			$query = "INSERT INTO CONFIGDATA(configid,line,config,client,tftp,mac,info,times,configtxt) VALUES ('" & $ConfigID & "','" & $ListRow & "','" & $config & "','','','','" & $infostring & "','1','" & $decodedconfig & "');"
