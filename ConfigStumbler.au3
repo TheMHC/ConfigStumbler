@@ -57,7 +57,7 @@ DirCreate($TmpDir)
 DirCreate($ConfDir)
 DirCreate($SavefDir)
 
-Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', "1")
+Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', 0)
 Dim $OverrideTftp = IniRead($settings, 'Settings', 'OverrideTftp', 0)
 Dim $OverrideTftpIP = IniRead($settings, 'Settings', 'OverrideTftpIP', "0.0.0.0")
 Dim $DefaultName = IniRead($settings, 'Settings', 'DefaultName', "Local Area Connection")
