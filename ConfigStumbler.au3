@@ -1,4 +1,4 @@
-#RequireAdmin
+;#RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
 $Program_Version = "0.8.2.1"
@@ -58,7 +58,7 @@ DirCreate($TmpDir)
 DirCreate($ConfDir)
 DirCreate($SavefDir)
 
-Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', "1")
+Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', 0)
 Dim $OverrideTftp = IniRead($settings, 'Settings', 'OverrideTftp', 0)
 Dim $OverrideTftpIP = IniRead($settings, 'Settings', 'OverrideTftpIP', "0.0.0.0")
 Dim $DefaultName = IniRead($settings, 'Settings', 'DefaultName', "Local Area Connection")
@@ -77,7 +77,6 @@ Dim $6120sshIP = IniRead($settings, '6120', 'sshIP', "192.168.100.1")
 Dim $6120sshUN = IniRead($settings, '6120', 'sshUN', "")
 Dim $6120sshPW = IniRead($settings, '6120', 'sshPW', "")
 Dim $6120sshSet = IniRead($settings, '6120', 'sshSet', 0)
-Dim $6120netcon = IniRead($settings, '6120', 'NetworkConnection', 'Local Area Connection')
 
 Dim $InterfaceMenuID_Array[1]
 Dim $InterfaceMenuName_Array[1]
@@ -156,9 +155,9 @@ $messagebox = GUICtrlCreateLabel("", 8, 45, 500, 15, $SS_LEFT)
 
 $ConfigDownload = GUICtrlCreateCheckbox("Automatically download config from tftp (Required for Info)", 104, 8, 297, 17)
 If $AutoDownloadConfigs = 1 Then GUICtrlSetState($ConfigDownload, $GUI_CHECKED)
-$OverrideTftpCheck = GUICtrlCreateCheckbox("Override tftp server", 104, 26, 120, 17)
+$OverrideTftpCheck = GUICtrlCreateCheckbox("Override tftp server", 104, 30, 120, 17)
 If $OverrideTftp = 1 Then GUICtrlSetState($OverrideTftpCheck, $GUI_CHECKED)
-$OverrideTftpIpBox = GUICtrlCreateInput($OverrideTftpIP, 225, 24, 150, 20)
+$OverrideTftpIpBox = GUICtrlCreateInput($OverrideTftpIP, 225, 28, 150, 20)
 
 
 ;GUICtrlSetResizing ($messagebox, $GUI_DOCKBORDERS)
@@ -1213,7 +1212,7 @@ Func _Settoallmacstilonline($type)
 						If $type = "6120" Then _Set6120mac($mac)
 						;Change lan ip to dhcp
 						GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to dhcp")
-						_RunDos('netsh inter ip set address "' & $6120netcon & '" source=dhcp')
+						_RunDos('netsh inter ip set address "' & $DefaultName & '" source=dhcp')
 						GUICtrlSetData($messagebox, _GetTime() & ": Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & "(" & $cm & "/" & $iRows & ")")
 						;wait for modem to boot
 						$WaitTimer = TimerInit()
@@ -1545,12 +1544,12 @@ EndFunc   ;==>_TestMacRangeGUI
 Func _TestMacRangeGUIOK()
 	$startmac = GUICtrlRead($iStartMac)
 	$startmacf = StringReplace(StringReplace($startmac, ":", ""), "-", "")
-	$startmac1 = '0x' & StringLeft($startmacf, 6)
-	$startmac2 = '0x' & StringRight($startmacf, 6)
+	$startmachex = '0x' & $startmacf
+	$startmacdec = Dec($startmacf)
 	$endmac = GUICtrlRead($iEndMac)
 	$endmacf = StringReplace(StringReplace($endmac, ":", ""), "-", "")
-	$endmac1 = '0x' & StringLeft($endmacf, 6)
-	$endmac2 = '0x' & StringRight($endmacf, 6)
+	$endmachex = '0x' & $endmacf
+	$endmacdec = Dec($endmacf)
 	$macpre = GUICtrlRead($iPrefix)
 	$macsuf = GUICtrlRead($iSuffix)
 	$mactftp = GUICtrlRead($iTFTP)
@@ -1560,33 +1559,62 @@ Func _TestMacRangeGUIOK()
 	$rad5100 = GUICtrlRead($rSB5100)
 	$rad5101 = GUICtrlRead($rSB5101)
 	$rad6120 = GUICtrlRead($rSB6120)
-
 	_TestMacRangeGUIClose()
-	For $ml = $startmac1 To $endmac1
-		$manhex = Hex($ml, 6)
-		For $cl = $startmac2 To $endmac2
-			$chex = Hex($cl, 6)
-			$fullmac = $manhex & $chex
-			$configname = $macpre & StringLower($fullmac) & $macsuf
-			GUICtrlSetData($messagebox, $fullmac)
-			ConsoleWrite('-------------------' & @CRLF)
-			ConsoleWrite($radnone & @CRLF)
-			ConsoleWrite($radtftp & @CRLF)
-			ConsoleWrite($rad5100 & @CRLF)
-			ConsoleWrite($rad5101 & @CRLF)
-			ConsoleWrite($rad6120 & @CRLF)
-			If $radnone = 1 Then
-				$bftype = "none"
-				_InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
-			ElseIf $radtftp = 1 Then
-				$bftype = "tftp"
-				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
-				$fconfigid = $InsertData[1] ;DB Config ID
-				_UpdateTftpInfoInDB($fconfigid, $mactftp, $configname);Update TFTP info
-			ElseIf $rad5100 = 1 Then
-				$bftype = "5100"
-				_Set5100mac($fullmac)
-				Sleep($testwaittime * 1000)
+	;show progress gui
+	$pform = GUICreate("Progress", 420, 125, -1, -1)
+	$pprogress = GUICtrlCreateProgress(10, 15, 400, 25)
+	$plabel = GUICtrlCreateLabel("", 10, 45, 400, 20)
+	$pcan = GUICtrlCreateButton("Cancel", 40, 80, 153, 33)
+	$ppause = GUICtrlCreateButton("Pause", 224, 80, 153, 33)
+	$pcanbit = 0
+	$totalmacs = $endmacdec - $startmacdec
+	$currentmac = 0
+	GUICtrlSetData($plabel, $currentmac & " / " & ($totalmacs + 1))
+	GUISetState(@SW_SHOW)
+
+	For $ml = $startmacdec To $endmacdec
+		$fullmac = Hex($ml, 12)
+		$configname = ""
+		GUICtrlSetData($messagebox, $fullmac)
+		If $radnone = 1 Then
+			$bftype = "none"
+			_InsertIntoDB("", "", $mactftp, $fullmac, "", "", 0)
+		ElseIf $radtftp = 1 Then
+			$bftype = "tftp"
+			$InsertData = _InsertIntoDB("", "", $mactftp, $fullmac, "", "", 0)
+			$fconfigid = $InsertData[1] ;DB Config ID
+			_UpdateTftpInfoInDB($fconfigid, $mactftp, $configname);Update TFTP info
+		ElseIf $rad5100 = 1 Then
+			$bftype = "5100"
+			_Set5100mac($fullmac)
+			$WaitTimer = TimerInit()
+			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
+				;watch for Pause/Cancel
+				$pausebtn = _GUICtrlButton_GetState($ppause)
+				If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+					GUICtrlSetData($ppause, "UnPause")
+					Sleep(100)
+					While 1
+						$closebtn = _GUICtrlButton_GetState($pcan)
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+							$pcanbit = 1
+							ExitLoop
+						EndIf
+						$pausebtn = _GUICtrlButton_GetState($ppause)
+						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+						Sleep(100)
+					WEnd
+					GUICtrlSetData($ppause, "Pause")
+					Sleep(500)
+				EndIf
+				$closebtn = _GUICtrlButton_GetState($pcan)
+				If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+					$pcanbit = 1
+					ExitLoop
+				EndIf
+				Sleep(100)
+			WEnd
+			If $pcanbit = 0 Then
 				$ConfData = _Get5100config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1596,10 +1624,38 @@ Func _TestMacRangeGUIOK()
 					$configinfo = _GetConfigInfo($decodedconfig)
 				EndIf
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
-			ElseIf $rad5101 = 1 Then
-				$bftype = "5101"
-				_Set5101mac($fullmac)
-				Sleep($testwaittime * 1000)
+			EndIf
+		ElseIf $rad5101 = 1 Then
+			$bftype = "5101"
+			_Set5101mac($fullmac)
+			$WaitTimer = TimerInit()
+			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
+				;watch for Pause/Cancel
+				$pausebtn = _GUICtrlButton_GetState($ppause)
+				If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+					GUICtrlSetData($ppause, "UnPause")
+					Sleep(100)
+					While 1
+						$closebtn = _GUICtrlButton_GetState($pcan)
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+							$pcanbit = 1
+							ExitLoop
+						EndIf
+						$pausebtn = _GUICtrlButton_GetState($ppause)
+						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+						Sleep(100)
+					WEnd
+					GUICtrlSetData($ppause, "Pause")
+					Sleep(500)
+				EndIf
+				$closebtn = _GUICtrlButton_GetState($pcan)
+				If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+					$pcanbit = 1
+					ExitLoop
+				EndIf
+				Sleep(100)
+			WEnd
+			If $pcanbit = 0 Then
 				$ConfData = _Get5101config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1609,10 +1665,38 @@ Func _TestMacRangeGUIOK()
 					$configinfo = _GetConfigInfo($decodedconfig)
 				EndIf
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
-			ElseIf $rad6120 = 1 Then
-				$bftype = "6120"
-				_Set6120mac($fullmac)
-				Sleep($testwaittime * 1000)
+			EndIf
+		ElseIf $rad6120 = 1 Then
+			$bftype = "6120"
+			_Set6120mac($fullmac)
+			$WaitTimer = TimerInit()
+			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
+				;watch for Pause/Cancel
+				$pausebtn = _GUICtrlButton_GetState($ppause)
+				If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+					GUICtrlSetData($ppause, "UnPause")
+					Sleep(100)
+					While 1
+						$closebtn = _GUICtrlButton_GetState($pcan)
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+							$pcanbit = 1
+							ExitLoop
+						EndIf
+						$pausebtn = _GUICtrlButton_GetState($ppause)
+						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+						Sleep(100)
+					WEnd
+					GUICtrlSetData($ppause, "Pause")
+					Sleep(500)
+				EndIf
+				$closebtn = _GUICtrlButton_GetState($pcan)
+				If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+					$pcanbit = 1
+					ExitLoop
+				EndIf
+				Sleep(100)
+			WEnd
+			If $pcanbit = 0 Then
 				$ConfData = _Get6120config($fullmac)
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1623,8 +1707,37 @@ Func _TestMacRangeGUIOK()
 				EndIf
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
 			EndIf
-		Next
+		EndIf
+		;Display Progress
+		$currentmac += 1
+		ConsoleWrite("$currentmac:" & $currentmac & "$totalmacs:" & ($totalmacs + 1) & @CRLF)
+		$percent = ($currentmac / ($totalmacs + 1)) * 100
+		ConsoleWrite("progress:" & $percent & @CRLF)
+		GUICtrlSetData($pprogress, $percent)
+		GUICtrlSetData($plabel, $currentmac & " / " & ($totalmacs + 1))
+		;watch for Pause/Cancel
+		$pausebtn = _GUICtrlButton_GetState($ppause)
+		If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+			GUICtrlSetData($ppause, "UnPause")
+			Sleep(100)
+			While 1
+				$closebtn = _GUICtrlButton_GetState($pcan)
+				If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+					$pcanbit = 1
+					ExitLoop
+				EndIf
+				$pausebtn = _GUICtrlButton_GetState($ppause)
+				If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+				Sleep(100)
+			WEnd
+			GUICtrlSetData($ppause, "Pause")
+			Sleep(100)
+		EndIf
+		$closebtn = _GUICtrlButton_GetState($pcan)
+		If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then $pcanbit = 1
+		If $pcanbit = 1 Then ExitLoop
 	Next
+	GUIDelete($pform)
 EndFunc   ;==>_TestMacRangeGUIOK
 
 Func _TestMacRangeGUIClose()
