@@ -15,6 +15,7 @@ Opt("GUIResizeMode", 802)
 #include <StaticConstants.au3>
 #include <WindowsConstants.au3>
 #include <GuiListView.au3>
+#include <GuiButton.au3>
 #include <String.au3>
 #include <SQLite.au3>
 #include <INet.au3>
@@ -57,7 +58,7 @@ DirCreate($TmpDir)
 DirCreate($ConfDir)
 DirCreate($SavefDir)
 
-Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', 0)
+Dim $AutoDownloadConfigs = IniRead($settings, 'Settings', 'AutoDownloadConfigs', "1")
 Dim $OverrideTftp = IniRead($settings, 'Settings', 'OverrideTftp', 0)
 Dim $OverrideTftpIP = IniRead($settings, 'Settings', 'OverrideTftpIP', "0.0.0.0")
 Dim $DefaultName = IniRead($settings, 'Settings', 'DefaultName', "Local Area Connection")
@@ -89,6 +90,8 @@ Dim $endmac = IniRead($settings, 'ScanMacRange', 'endmac', "00:00:00:00:00:00")
 Dim $macpre = IniRead($settings, 'ScanMacRange', 'macpre', "")
 Dim $macsuf = IniRead($settings, 'ScanMacRange', 'macsuf', "")
 Dim $mactftp = IniRead($settings, 'ScanMacRange', 'mactftp', "")
+Dim $bftype = IniRead($settings, 'ScanMacRange', 'bftype', "none")
+Dim $testwaittime = IniRead($settings, 'ScanMacRange', 'testwaittime', 75)
 
 FileWrite($configfile, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 
@@ -285,7 +288,7 @@ Func _CheckData($data)
 	Else
 		$UdpDataArr[0] = 0 ;Not results found, sting not long enough
 	EndIf
-	Return($UdpDataArr)
+	Return ($UdpDataArr)
 EndFunc   ;==>_CheckData
 
 Func _InsertIntoDB($config, $client, $tftp, $mac, $infostring = "", $configtxt = "", $TimesSeen = 1)
@@ -331,7 +334,7 @@ Func _InsertIntoDB($config, $client, $tftp, $mac, $infostring = "", $configtxt =
 		$InsertReturn[0] = 0
 		$InsertReturn[1] = $FoundConfigID
 	EndIf
-	Return($InsertReturn)
+	Return ($InsertReturn)
 EndFunc   ;==>_InsertIntoDB
 
 Func _ListViewAdd($line, $Add_CID = '', $Add_mac = '', $Add_manu = '', $Add_client = '', $Add_tftp = '', $Add_config = '', $Add_info = '', $Add_times = '')
@@ -345,7 +348,7 @@ Func _ListViewAdd($line, $Add_CID = '', $Add_mac = '', $Add_manu = '', $Add_clie
 	If $Add_times <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_times, 7)
 EndFunc   ;==>_ListViewAdd
 
-Func _UpdateTftpInfoInDB($configid, $tftp, $config)
+Func _UpdateTftpInfoInDB($ConfigID, $tftp, $config)
 	Local $Updated = 0
 	$TftpResults = _TFTPDownload($tftp, $config)
 	If $TftpResults[0] = 1 Then
@@ -353,18 +356,18 @@ Func _UpdateTftpInfoInDB($configid, $tftp, $config)
 		$decodedconfig = $TftpResults[2]
 		$configinfo = $TftpResults[3]
 		Local $ConfigMatchArray, $iRows, $iColumns, $iRval
-		$query = "SELECT configid, line FROM CONFIGDATA WHERE configid='" & $configid & "' limit 1"
+		$query = "SELECT configid, line FROM CONFIGDATA WHERE configid='" & $ConfigID & "' limit 1"
 		$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
 		If $iRows = 1 Then
 			$FoundConfigID = $ConfigMatchArray[1][0]
 			$FoundLine = $ConfigMatchArray[1][1]
 			;Update info in database
 			If $decodedconfig <> "" Then
-				$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $configid & "'"
+				$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $ConfigID & "'"
 				_SQLite_Exec($DBhndl, $query)
 			EndIf
 			If $configinfo <> "" Then
-				$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $configid & "'"
+				$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $ConfigID & "'"
 				_SQLite_Exec($DBhndl, $query)
 			EndIf
 			;Update Listview
@@ -372,8 +375,8 @@ Func _UpdateTftpInfoInDB($configid, $tftp, $config)
 			$Updated = 1
 		EndIf
 	EndIf
-	Return($Updated)
-EndFunc
+	Return ($Updated)
+EndFunc   ;==>_UpdateTftpInfoInDB
 
 Func _TFTPDownload($tftp, $config)
 	Local $result[4]
@@ -390,8 +393,8 @@ Func _TFTPDownload($tftp, $config)
 	Else
 		$result[0] = 0
 	EndIf
-	Return($result)
-EndFunc
+	Return ($result)
+EndFunc   ;==>_TFTPDownload
 
 Func _GetConfigTFTP($tftp_server, $tftp_configfile, $local_configfile)
 	GUICtrlSetData($messagebox, 'Downloading config: ' & $tftp_configfile & ' (' & _GetTime() & ')')
@@ -655,7 +658,9 @@ Func UpdateSettingIni()
 	IniWrite($settings, 'ScanMacRange', 'macpre', $macpre)
 	IniWrite($settings, 'ScanMacRange', 'macsuf', $macsuf)
 	IniWrite($settings, 'ScanMacRange', 'mactftp', $mactftp)
-EndFunc
+	IniWrite($settings, 'ScanMacRange', 'bftype', $bftype)
+	IniWrite($settings, 'ScanMacRange', 'testwaittime', $testwaittime)
+EndFunc   ;==>UpdateSettingIni
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Edit Menu Functions
@@ -1015,14 +1020,28 @@ Func _Settoallmacs($type)
 			If $type = "5101" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "65")
 			If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
 			If Not @error Then
-				GUICtrlSetData($messagebox, "Setting ip to 192,168.100.2")
-				_RunDOS('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+				;set ip
+				GUICtrlSetData($messagebox, "Setting ip to '192.168.100.2' on '" & $DefaultName & "'")
+				_RunDos('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
 				Sleep(5000)
 				FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 				$query = "SELECT mac, client, tftp FROM CONFIGDATA"
 				$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
-				If $iRows <> 0 Then ;If Configs found, write to file
+				If $iRows <> 0 Then ;If Configs found, go through them
+					;show progress gui
+					$pform = GUICreate("Progress", 420, 125, -1, -1)
+					$pprogress = GUICtrlCreateProgress(10, 15, 400, 25)
+					$plabel = GUICtrlCreateLabel("", 10, 45, 400, 20)
+					$pcan = GUICtrlCreateButton("Cancel", 40, 80, 153, 33)
+					$ppause = GUICtrlCreateButton("Pause", 224, 80, 153, 33)
+					$pcanbit = 0
+					GUISetState(@SW_SHOW)
+					;go through macs
 					For $cm = 1 To $iRows
+						;Set Percent
+						$percent = ($cm / $iRows) * 100
+						GUICtrlSetData($pprogress, $percent)
+						GUICtrlSetData($plabel, $cm & " / " & $iRows)
 						;Change modem Mac Adress
 						$mac = $ConfigMatchArray[$cm][0]
 						$client = $ConfigMatchArray[$cm][1]
@@ -1033,27 +1052,75 @@ Func _Settoallmacs($type)
 						If $type = "6120" Then _Set6120mac($mac)
 						;wait for modem to reboot
 						GUICtrlSetData($messagebox, "Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & " (" & _GetTime() & ")")
-						Sleep($waittime * 1000)
-						;Pull config from modem
-						GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $mac & " (" & _GetTime() & ")")
-						If $type = "5100" Then $conflocinfo = _Get5100config()
-						If $type = "5101" Then $conflocinfo = _Get5101config()
-						If $type = "6120" Then $conflocinfo = _Get6120config($mac)
-						;Decode config file downloaded above
-						$configtxt = ""
-						$configname = ""
-						$infostring = ""
-						If $conflocinfo[0] = 1 Then
-							$config_destfile = $conflocinfo[1]
-							$configname = $conflocinfo[2]
-							$decodedconfig = _DecodeConfig($config_destfile)
-							If $decodedconfig <> "" Then $configtxt = $decodedconfig
-							$configinfo = _GetConfigInfo($decodedconfig)
-							If $configinfo <> "" Then $infostring = $configinfo
+						$WaitTimer = TimerInit()
+						While TimerDiff($WaitTimer) < ($waittime * 1000)
+							$pausebtn = _GUICtrlButton_GetState($ppause)
+							If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+								GUICtrlSetData($ppause, "UnPause")
+								Sleep(100)
+								While 1
+									$closebtn = _GUICtrlButton_GetState($pcan)
+									If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+										$pcanbit = 1
+										ExitLoop
+									EndIf
+									$pausebtn = _GUICtrlButton_GetState($ppause)
+									If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+									Sleep(100)
+								WEnd
+								GUICtrlSetData($ppause, "Pause")
+								Sleep(500)
+							EndIf
+							$closebtn = _GUICtrlButton_GetState($pcan)
+							If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+								$pcanbit = 1
+								ExitLoop
+							EndIf
+							Sleep(100)
+						WEnd
+						If $pcanbit = 0 Then
+							;Pull config from modem
+							GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $mac & " (" & _GetTime() & ")")
+							If $type = "5100" Then $conflocinfo = _Get5100config()
+							If $type = "5101" Then $conflocinfo = _Get5101config()
+							If $type = "6120" Then $conflocinfo = _Get6120config($mac)
+							;Decode config file downloaded above
+							$configtxt = ""
+							$configname = ""
+							$infostring = ""
+							If $conflocinfo[0] = 1 Then
+								$config_destfile = $conflocinfo[1]
+								$configname = $conflocinfo[2]
+								$decodedconfig = _DecodeConfig($config_destfile)
+								If $decodedconfig <> "" Then $configtxt = $decodedconfig
+								$configinfo = _GetConfigInfo($decodedconfig)
+								If $configinfo <> "" Then $infostring = $configinfo
+							EndIf
+							;write to new configstumbler csv file
+							FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
 						EndIf
-						;write to new configstumbler csv file
-						FileWrite($file, '"' & $mac & '",' & $client & ',' & $tftp & ',"' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+						$pausebtn = _GUICtrlButton_GetState($ppause)
+						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+							GUICtrlSetData($ppause, "UnPause")
+							Sleep(100)
+							While 1
+								$closebtn = _GUICtrlButton_GetState($pcan)
+								If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+									$pcanbit = 1
+									ExitLoop
+								EndIf
+								$pausebtn = _GUICtrlButton_GetState($ppause)
+								If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+								Sleep(100)
+							WEnd
+							GUICtrlSetData($ppause, "Pause")
+							Sleep(100)
+						EndIf
+						$closebtn = _GUICtrlButton_GetState($pcan)
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then $pcanbit = 1
+						If $pcanbit = 1 Then ExitLoop
 					Next
+					GUIDelete($pform)
 				EndIf
 				GUICtrlSetData($messagebox, "Done setting macs ")
 			Else
@@ -1093,31 +1160,123 @@ Func _Settoallmacstilonline($type)
 			$query = "SELECT mac FROM CONFIGDATA"
 			$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
 			If $iRows <> 0 Then
+				;show progress gui
+				$pform = GUICreate("Progress", 420, 125, -1, -1)
+				$pprogress = GUICtrlCreateProgress(10, 15, 400, 25)
+				$plabel = GUICtrlCreateLabel("", 10, 45, 400, 20)
+				$pcan = GUICtrlCreateButton("Cancel", 40, 80, 153, 33)
+				$ppause = GUICtrlCreateButton("Pause", 224, 80, 153, 33)
+				$pcanbit = 0
+				GUISetState(@SW_SHOW)
 				For $cm = 1 To $iRows
 					$mac = $ConfigMatchArray[$cm][0]
+					;Set Percent
+					$percent = ($cm / $iRows) * 100
+					GUICtrlSetData($pprogress, $percent)
+					GUICtrlSetData($plabel, $cm & " / " & $iRows)
 					;Change lan ip to static
 					GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to 192.168.100.2")
-					_RunDOS('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
-					Sleep(5000);Wait for ip changes
-					;Change Modem Mac Adress
-					GUICtrlSetData($messagebox, _GetTime() & ": Setting modem mac to " & $mac & "(" & $cm & "/" & $iRows & ")")
-					If $type = "5100" Then _Set5100mac($mac)
-					If $type = "5101" Then _Set5101mac($mac)
-					If $type = "6120" Then _Set6120mac($mac)
-					;Change lan ip to dhcp
-					GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to dhcp")
-					_RunDOS('netsh inter ip set address "' & $6120netcon & '" source=dhcp')
-					GUICtrlSetData($messagebox, _GetTime() & ": Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & "(" & $cm & "/" & $iRows & ")")
-					Sleep($waittime * 1000);Wait for modem to boot and dhcp change to take effect
-					;Test Internet Connection
-					GUICtrlSetData($messagebox, _GetTime() & ": Checking internet conntection with mac " & $mac)
-					If _TestInternetConnection() = 1 Then
-						;Modem is online
-						GUICtrlSetData($messagebox, _GetTime() & ": Online with mac " & $mac & "! :-D")
-						Sleep(1000)
-						ExitLoop
+					_RunDos('netsh inter ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+					;Wait for ip changes
+					$WaitTimer = TimerInit()
+					While TimerDiff($WaitTimer) < 5000
+						;watch for Pause/Cancel
+						$pausebtn = _GUICtrlButton_GetState($ppause)
+						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+							GUICtrlSetData($ppause, "UnPause")
+							Sleep(100)
+							While 1
+								$closebtn = _GUICtrlButton_GetState($pcan)
+								If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+									$pcanbit = 1
+									ExitLoop
+								EndIf
+								$pausebtn = _GUICtrlButton_GetState($ppause)
+								If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+								Sleep(100)
+							WEnd
+							GUICtrlSetData($ppause, "Pause")
+							Sleep(500)
+						EndIf
+						$closebtn = _GUICtrlButton_GetState($pcan)
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+							$pcanbit = 1
+							ExitLoop
+						EndIf
+						Sleep(100)
+					WEnd
+					If $pcanbit = 0 Then
+						;Change Modem Mac Adress
+						GUICtrlSetData($messagebox, _GetTime() & ": Setting modem mac to " & $mac & "(" & $cm & "/" & $iRows & ")")
+						If $type = "5100" Then _Set5100mac($mac)
+						If $type = "5101" Then _Set5101mac($mac)
+						If $type = "6120" Then _Set6120mac($mac)
+						;Change lan ip to dhcp
+						GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to dhcp")
+						_RunDos('netsh inter ip set address "' & $6120netcon & '" source=dhcp')
+						GUICtrlSetData($messagebox, _GetTime() & ": Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & "(" & $cm & "/" & $iRows & ")")
+						;wait for modem to boot
+						$WaitTimer = TimerInit()
+						While TimerDiff($WaitTimer) < ($waittime * 1000)
+							;watch for Pause/Cancel
+							$pausebtn = _GUICtrlButton_GetState($ppause)
+							If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+								GUICtrlSetData($ppause, "UnPause")
+								Sleep(100)
+								While 1
+									$closebtn = _GUICtrlButton_GetState($pcan)
+									If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+										$pcanbit = 1
+										ExitLoop
+									EndIf
+									$pausebtn = _GUICtrlButton_GetState($ppause)
+									If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+									Sleep(100)
+								WEnd
+								GUICtrlSetData($ppause, "Pause")
+								Sleep(500)
+							EndIf
+							$closebtn = _GUICtrlButton_GetState($pcan)
+							If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+								$pcanbit = 1
+								ExitLoop
+							EndIf
+							Sleep(100)
+						WEnd
+						If $pcanbit = 0 Then
+							;Test Internet Connection
+							GUICtrlSetData($messagebox, _GetTime() & ": Checking internet conntection with mac " & $mac)
+							If _TestInternetConnection() = 1 Then
+								;Modem is online
+								GUICtrlSetData($messagebox, _GetTime() & ": Online with mac " & $mac & "! :-D")
+								Sleep(1000)
+								ExitLoop
+							EndIf
+						EndIf
 					EndIf
+					;watch for Pause/Cancel
+					$pausebtn = _GUICtrlButton_GetState($ppause)
+					If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+						GUICtrlSetData($ppause, "UnPause")
+						Sleep(100)
+						While 1
+							$closebtn = _GUICtrlButton_GetState($pcan)
+							If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+								$pcanbit = 1
+								ExitLoop
+							EndIf
+							$pausebtn = _GUICtrlButton_GetState($ppause)
+							If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+							Sleep(100)
+						WEnd
+						GUICtrlSetData($ppause, "Pause")
+						Sleep(100)
+					EndIf
+					$closebtn = _GUICtrlButton_GetState($pcan)
+					If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then $pcanbit = 1
+					If $pcanbit = 1 Then ExitLoop
 				Next
+				GUIDelete($pform)
 			EndIf
 			GUICtrlSetData($messagebox, "Done setting macs ")
 		Else
@@ -1300,7 +1459,7 @@ Func _Get5100config()
 		EndIf
 	EndIf
 	Return $return
-EndFunc
+EndFunc   ;==>_Get5100config
 
 Func _Get5101config()
 	Local $return[3]
@@ -1320,7 +1479,7 @@ Func _Get5101config()
 		EndIf
 	EndIf
 	Return $return
-EndFunc
+EndFunc   ;==>_Get5101config
 
 Func _Get6120config($mac)
 	Local $return[3]
@@ -1336,7 +1495,7 @@ Func _Get6120config($mac)
 		$return[2] = $configname
 	EndIf
 	Return $return
-EndFunc
+EndFunc   ;==>_Get6120config
 
 ;---> Test downloding configs from a tftp server in a mac address range
 
@@ -1354,8 +1513,21 @@ Func _TestMacRangeGUI()
 	$rSB5100 = GUICtrlCreateRadio("SB5100 - Change mac using telnet, download config from modem", 27, 150, 350, 17)
 	$rSB5101 = GUICtrlCreateRadio("SB5101 - Change mac using telnet, download config from modem", 27, 170, 350, 17)
 	$rSB6120 = GUICtrlCreateRadio("SB6120 - Change mac using ssh, download config from modem", 27, 190, 350, 17)
+	If $bftype = "none" Then
+		GUICtrlSetState($rNone, $GUI_CHECKED)
+	ElseIf $bftype = "tftp" Then
+		GUICtrlSetState($rTFTP, $GUI_CHECKED)
+	ElseIf $bftype = "5100" Then
+		GUICtrlSetState($rSB5100, $GUI_CHECKED)
+	ElseIf $bftype = "5101" Then
+		GUICtrlSetState($rSB5101, $GUI_CHECKED)
+	ElseIf $bftype = "6120" Then
+		GUICtrlSetState($rSB6120, $GUI_CHECKED)
+	Else
+		GUICtrlSetState($rNone, $GUI_CHECKED)
+	EndIf
 	GUICtrlCreateLabel("Wait until online(secs):", 30, 220, 110, 17)
-	$iWaitTime = GUICtrlCreateInput("75", 139, 215, 225, 21)
+	$iWaitTime = GUICtrlCreateInput($testwaittime, 139, 215, 225, 21)
 	$Group2 = GUICtrlCreateGroup("Mac Range to Scan", 16, 264, 369, 97)
 	GUICtrlCreateLabel("Start Mac", 30, 302, 50, 17)
 	$iStartMac = GUICtrlCreateInput($startmac, 110, 297, 225, 21)
@@ -1365,6 +1537,8 @@ Func _TestMacRangeGUI()
 	$rCAN = GUICtrlCreateButton("Cancel", 114, 370, 95, 25, $WS_GROUP)
 	GUICtrlSetOnEvent($rOK, '_TestMacRangeGUIOK')
 	GUICtrlSetOnEvent($rCAN, '_TestMacRangeGUIClose')
+
+
 	GUISetState(@SW_SHOW)
 EndFunc   ;==>_TestMacRangeGUI
 
@@ -1380,12 +1554,13 @@ Func _TestMacRangeGUIOK()
 	$macpre = GUICtrlRead($iPrefix)
 	$macsuf = GUICtrlRead($iSuffix)
 	$mactftp = GUICtrlRead($iTFTP)
-	$wait = GuiCtrlRead($iWaitTime)
-	$radnone = GuiCtrlRead($rNone)
-	$radtftp = GuiCtrlRead($rTFTP)
-	$rad5100 = GuiCtrlRead($rSB5100)
-	$rad5101 = GuiCtrlRead($rSB5101)
-	$rad6120 = GuiCtrlRead($rSB6120)
+	$testwaittime = GUICtrlRead($iWaitTime)
+	$radnone = GUICtrlRead($rNone)
+	$radtftp = GUICtrlRead($rTFTP)
+	$rad5100 = GUICtrlRead($rSB5100)
+	$rad5101 = GUICtrlRead($rSB5101)
+	$rad6120 = GUICtrlRead($rSB6120)
+
 	_TestMacRangeGUIClose()
 	For $ml = $startmac1 To $endmac1
 		$manhex = Hex($ml, 6)
@@ -1401,14 +1576,17 @@ Func _TestMacRangeGUIOK()
 			ConsoleWrite($rad5101 & @CRLF)
 			ConsoleWrite($rad6120 & @CRLF)
 			If $radnone = 1 Then
+				$bftype = "none"
 				_InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
 			ElseIf $radtftp = 1 Then
+				$bftype = "tftp"
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, "", "", 0)
 				$fconfigid = $InsertData[1] ;DB Config ID
 				_UpdateTftpInfoInDB($fconfigid, $mactftp, $configname);Update TFTP info
 			ElseIf $rad5100 = 1 Then
+				$bftype = "5100"
 				_Set5100mac($fullmac)
-				Sleep($wait)
+				Sleep($testwaittime * 1000)
 				$ConfData = _Get5100config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1419,8 +1597,9 @@ Func _TestMacRangeGUIOK()
 				EndIf
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
 			ElseIf $rad5101 = 1 Then
+				$bftype = "5101"
 				_Set5101mac($fullmac)
-				Sleep($wait)
+				Sleep($testwaittime * 1000)
 				$ConfData = _Get5101config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1431,8 +1610,9 @@ Func _TestMacRangeGUIOK()
 				EndIf
 				$InsertData = _InsertIntoDB($configname, "", $mactftp, $fullmac, $configinfo, $decodedconfig, 0)
 			ElseIf $rad6120 = 1 Then
+				$bftype = "6120"
 				_Set6120mac($fullmac)
-				Sleep($wait)
+				Sleep($testwaittime * 1000)
 				$ConfData = _Get6120config($fullmac)
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1517,10 +1697,10 @@ Func _ImportConfigFile()
 EndFunc   ;==>_ImportConfigFile
 
 Func _ImportConfigFolder()
-	$opencfgfolder = FileSelectFolder("Select a folder with config files to import", "", 0,$ConfDir)
+	$opencfgfolder = FileSelectFolder("Select a folder with config files to import", "", 0, $ConfDir)
 	If Not @error Then
 		$cfgfiles = _FileListToArray($opencfgfolder)
-		For $if = 1 to $cfgfiles[0]
+		For $if = 1 To $cfgfiles[0]
 			$configpath = $opencfgfolder & "\" & $cfgfiles[$if]
 			$config = $cfgfiles[$if]
 			$decodedconfig = _DecodeConfig($configpath)
@@ -1538,7 +1718,7 @@ Func _ImportConfigFolder()
 			FileWrite($configfile, '"",,,"' & $config & '","' & $infostring & '",1,' & StringToBinary($decodedconfig) & @CRLF)
 		Next
 	EndIf
-EndFunc   ;==>_ImportConfigFile
+EndFunc   ;==>_ImportConfigFolder
 
 Func _SortColumnToggle(); Sets the conf list column header that was clicked
 	$SortColumn = GUICtrlGetState($ConfList)
