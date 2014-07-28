@@ -1,8 +1,8 @@
 #RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.2.1"
-$Last_Modified = "2013-06-27"
+$Program_Version = "0.8.3"
+$Last_Modified = "2014-07-28"
 $By = "TheMHC"
 ;-----------------------------------
 Opt("GUIOnEventMode", 1);Change to OnEvent mode
@@ -150,8 +150,8 @@ $importconfigfile = GUICtrlCreateMenuItem("Import config file", $ExtraMenu)
 $importconfigfolder = GUICtrlCreateMenuItem("Import folder of config files", $ExtraMenu)
 
 ;End Get Local IPs
-$ScanButton = GUICtrlCreateButton("Scan", 8, 8, 81, 33, $WS_GROUP)
-$messagebox = GUICtrlCreateLabel("", 8, 45, 500, 15, $SS_LEFT)
+$ScanButton = GUICtrlCreateButton("Scan", 10, 10, 81, 35, $WS_GROUP)
+$messagebox = GUICtrlCreateLabel("", 8, 52, 500, 17, $SS_LEFT)
 
 $ConfigDownload = GUICtrlCreateCheckbox("Automatically download config from tftp (Required for Info)", 104, 8, 297, 17)
 If $AutoDownloadConfigs = 1 Then GUICtrlSetState($ConfigDownload, $GUI_CHECKED)
@@ -161,7 +161,7 @@ $OverrideTftpIpBox = GUICtrlCreateInput($OverrideTftpIP, 225, 28, 150, 20)
 
 
 ;GUICtrlSetResizing ($messagebox, $GUI_DOCKBORDERS)
-$ConfList = GUICtrlCreateListView("#|Mac|Manufacturer|Client|TFTP Server|Config|Info|Times seen", 0, 65, 441, 165, $LVS_REPORT + $LVS_SINGLESEL, $LVS_EX_HEADERDRAGDROP + $LVS_EX_GRIDLINES + $LVS_EX_FULLROWSELECT)
+$ConfList = GUICtrlCreateListView("#|Mac|Manufacturer|Client|TFTP Server|Config|Info|Times seen", 0, 70, 441, 160, $LVS_REPORT + $LVS_SINGLESEL, $LVS_EX_HEADERDRAGDROP + $LVS_EX_GRIDLINES + $LVS_EX_FULLROWSELECT)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 0, 30)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 1, 110)
 GUICtrlSendMsg(-1, $LVM_SETCOLUMNWIDTH, 2, 110)
@@ -1539,15 +1539,19 @@ Func _TestMacRangeGUIOK()
 		GUICtrlSetData($messagebox, $fullmac)
 		If $radnone = 1 Then
 			$bftype = "none"
+			GUICtrlSetData($messagebox, "Adding mac " & $fullmac & " (" & _GetTime() & ")")
 			_InsertIntoDB("", "", $mactftp, $fullmac, "", "", 0)
 		ElseIf $radtftp = 1 Then
 			$bftype = "tftp"
+			GUICtrlSetData($messagebox, "Adding mac " & $fullmac & " (" & _GetTime() & ")")
 			$InsertData = _InsertIntoDB("", "", $mactftp, $fullmac, "", "", 0)
 			$fconfigid = $InsertData[1] ;DB Config ID
 			_UpdateTftpInfoInDB($fconfigid, $mactftp, $configname);Update TFTP info
 		ElseIf $rad5100 = 1 Then
 			$bftype = "5100"
+			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
 			_Set5100mac($fullmac)
+			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
 				;watch for Pause/Cancel
@@ -1576,6 +1580,7 @@ Func _TestMacRangeGUIOK()
 				Sleep(100)
 			WEnd
 			If $pcanbit = 0 Then
+				GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $fullmac & " (" & _GetTime() & ")")
 				$ConfData = _Get5100config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1588,7 +1593,9 @@ Func _TestMacRangeGUIOK()
 			EndIf
 		ElseIf $rad5101 = 1 Then
 			$bftype = "5101"
+			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
 			_Set5101mac($fullmac)
+			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
 				;watch for Pause/Cancel
@@ -1617,6 +1624,7 @@ Func _TestMacRangeGUIOK()
 				Sleep(100)
 			WEnd
 			If $pcanbit = 0 Then
+				GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $fullmac & " (" & _GetTime() & ")")
 				$ConfData = _Get5101config()
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
@@ -1629,7 +1637,9 @@ Func _TestMacRangeGUIOK()
 			EndIf
 		ElseIf $rad6120 = 1 Then
 			$bftype = "6120"
+			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
 			_Set6120mac($fullmac)
+			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
 				;watch for Pause/Cancel
@@ -1658,6 +1668,7 @@ Func _TestMacRangeGUIOK()
 				Sleep(100)
 			WEnd
 			If $pcanbit = 0 Then
+				GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $fullmac & " (" & _GetTime() & ")")
 				$ConfData = _Get6120config($fullmac)
 				Local $decodedconfig = "", $configinfo = ""
 				If $ConfData[0] = 1 Then
