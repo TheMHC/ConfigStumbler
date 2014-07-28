@@ -1,4 +1,4 @@
-;#RequireAdmin
+#RequireAdmin
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
 $Program_Version = "0.8.2.1"
@@ -805,12 +805,13 @@ Func _AddInterfaces()
 						_ArrayAdd($InterfaceMenuName_Array, $adaptername)
 						_ArrayAdd($InterfaceMenuIP_Array, $adapterip)
 						$InterfaceMenuID_Array[0] = UBound($InterfaceMenuID_Array) - 1
+						$InterfaceMenuName_Array[0] = UBound($InterfaceMenuName_Array) - 1
 						$InterfaceMenuIP_Array[0] = UBound($InterfaceMenuIP_Array) - 1
 						If $adaptername = $DefaultName Then
 							$FoundIP = 1
 							$DefaultIntMenuID = $menuid
-							$DefaultName = $InterfaceMenuName_Array[1]
-							$DefaultIP = $InterfaceMenuIP_Array[1]
+							$DefaultName = $InterfaceMenuName_Array[$InterfaceMenuName_Array[0]]
+							$DefaultIP = $InterfaceMenuIP_Array[$InterfaceMenuIP_Array[0]]
 							GUICtrlSetState($menuid, $GUI_CHECKED)
 						EndIf
 					Next
@@ -1308,7 +1309,7 @@ EndFunc   ;==>_TestInternetConnection
 
 Func _Set5100mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -telnet ' & $5100telnetUN & '@' & $5100telnetIP
-	Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
+	$putty = Run($cmd)
 	WinActivate($5100telnetIP & " - PuTTY")
 	WinWaitActive($5100telnetIP & " - PuTTY")
 	Send("{ENTER}")
@@ -1342,22 +1343,7 @@ Func _Set5100mac($mac)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(1000)
-	While WinExists($5100telnetIP & " - PuTTY")
-		If WinExists("PuTTY Fatal Error") Then
-			WinActive("PuTTY Fatal Error")
-			Send("{ENTER}")
-		EndIf
-		If WinExists("PuTTY Exit Confirmation") Then
-			WinActivate("PuTTY Exit Confirmation")
-			Send("{ENTER}")
-		EndIf
-		If WinExists($5100telnetIP & " - PuTTY") Then
-			WinActivate($5100telnetIP & " - PuTTY")
-			Send("!{F4}")
-		EndIf
-		Sleep(1000)
-	WEnd
-	Return ($mac)
+	ProcessClose($putty)
 EndFunc   ;==>_Set5100mac
 
 Func _Set5101mac($mac)
@@ -1391,7 +1377,7 @@ EndFunc   ;==>_Set5101mac
 
 Func _Set6120mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -ssh ' & $6120sshUN & '@' & $6120sshIP
-	$putty = Run(@ComSpec & ' /c ' & $cmd, '', @SW_HIDE, 2)
+	$putty = Run($cmd)
 	WinActivate($6120sshIP & " - PuTTY")
 	WinWaitActive($6120sshIP & " - PuTTY")
 	Sleep(2000)
@@ -1407,30 +1393,7 @@ Func _Set6120mac($mac)
 	Sleep(50)
 	Send("{ENTER}")
 	Sleep(1000)
-	While (WinExists($6120sshIP & " - PuTTY") Or WinExists("PuTTY (inactive)"))
-		If WinExists("PuTTY Fatal Error") Then
-			WinActive("PuTTY Fatal Error")
-			Sleep(1000)
-			Send("{ENTER}")
-		EndIf
-		If WinExists("PuTTY Exit Confirmation") Then
-			WinActivate("PuTTY Exit Confirmation")
-			Sleep(1000)
-			Send("{ENTER}")
-		EndIf
-		If WinExists($6120sshIP & " - PuTTY") Then
-			WinActivate($6120sshIP & " - PuTTY")
-			Sleep(1000)
-			Send("!{F4}")
-		EndIf
-		If WinExists("PuTTY (inactive)") Then
-			WinActivate("PuTTY (inactive)")
-			Sleep(1000)
-			Send("!{F4}")
-		EndIf
-		Sleep(1000)
-	WEnd
-	Return ($mac)
+	ProcessClose($putty)
 EndFunc   ;==>_Set6120mac
 
 ;---> Download config from modem <---
@@ -1536,8 +1499,6 @@ Func _TestMacRangeGUI()
 	$rCAN = GUICtrlCreateButton("Cancel", 114, 370, 95, 25, $WS_GROUP)
 	GUICtrlSetOnEvent($rOK, '_TestMacRangeGUIOK')
 	GUICtrlSetOnEvent($rCAN, '_TestMacRangeGUIClose')
-
-
 	GUISetState(@SW_SHOW)
 EndFunc   ;==>_TestMacRangeGUI
 
@@ -1743,7 +1704,6 @@ EndFunc   ;==>_TestMacRangeGUIOK
 Func _TestMacRangeGUIClose()
 	GUIDelete($tmrGUI)
 EndFunc   ;==>_TestMacRangeGUIClose
-
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Button Functions
