@@ -347,7 +347,7 @@ Func _ListViewAdd($line, $Add_CID = '', $Add_mac = '', $Add_manu = '', $Add_clie
 	If $Add_times <> '' Then _GUICtrlListView_SetItemText($ConfList, $line, $Add_times, 7)
 EndFunc   ;==>_ListViewAdd
 
-Func _UpdateTftpInfoInDB($ConfigID, $tftp, $config)
+Func _UpdateTftpInfoInDB($config_id, $tftp, $config)
 	Local $Updated = 0
 	$TftpResults = _TFTPDownload($tftp, $config)
 	If $TftpResults[0] = 1 Then
@@ -355,18 +355,18 @@ Func _UpdateTftpInfoInDB($ConfigID, $tftp, $config)
 		$decodedconfig = $TftpResults[2]
 		$configinfo = $TftpResults[3]
 		Local $ConfigMatchArray, $iRows, $iColumns, $iRval
-		$query = "SELECT configid, line FROM CONFIGDATA WHERE configid='" & $ConfigID & "' limit 1"
+		$query = "SELECT configid, line FROM CONFIGDATA WHERE configid='" & $config_id & "' limit 1"
 		$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
 		If $iRows = 1 Then
 			$FoundConfigID = $ConfigMatchArray[1][0]
 			$FoundLine = $ConfigMatchArray[1][1]
 			;Update info in database
 			If $decodedconfig <> "" Then
-				$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $ConfigID & "'"
+				$query = "UPDATE CONFIGDATA SET configtxt='" & $decodedconfig & "' WHERE configid = '" & $config_id & "'"
 				_SQLite_Exec($DBhndl, $query)
 			EndIf
 			If $configinfo <> "" Then
-				$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $ConfigID & "'"
+				$query = "UPDATE CONFIGDATA SET info='" & $configinfo & "' WHERE configid = '" & $config_id & "'"
 				_SQLite_Exec($DBhndl, $query)
 			EndIf
 			;Update Listview
