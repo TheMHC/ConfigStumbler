@@ -84,6 +84,9 @@ Dim $InterfaceMenuIP_Array[1]
 Dim $RefreshInterfaces
 
 Dim $StaticIPForm, $InpIP, $InpSubnet, $InpGateway
+Dim $intip = IniRead($settings, 'StaticIP', 'intip', "192.168.100.2")
+Dim $intsub = IniRead($settings, 'StaticIP', 'intsub', "255.255.255.0")
+Dim $intgate = IniRead($settings, 'StaticIP', 'intgate', "none")
 
 Dim $tmrGUI, $iTFTP, $iPrefix, $iSuffix, $iStartMac, $iEndMac, $iWaitTime, $rNone, $rTFTP, $rSB5100, $rSB5101, $rSB6120
 Dim $startmac = IniRead($settings, 'ScanMacRange', 'startmac', "00:00:00:00:00:00")
@@ -149,6 +152,7 @@ $Set6120selmac = GUICtrlCreateMenuItem("Set SB6120 mac to selected", $6120AlphaM
 $Set6120toallmacs = GUICtrlCreateMenuItem("Set SB6120 mac to all macs (timed)", $6120AlphaMenu)
 $Set6120toallmacstilonline = GUICtrlCreateMenuItem("Set SB6120 mac to all macs until online (timed)", $6120AlphaMenu)
 $SetIntMenu = GUICtrlCreateMenu("Set Interface", $ExtraMenu)
+$SetStaticIpSettings = GUICtrlCreateMenuItem("Static IP Settings", $SetIntMenu)
 $SetIntDisable = GUICtrlCreateMenuItem("Set Interface Disabled", $SetIntMenu)
 $SetIntEnable = GUICtrlCreateMenuItem("Set Interface Enabled", $SetIntMenu)
 $SetIntstatic = GUICtrlCreateMenuItem("Set Interface to Static IP", $SetIntMenu)
@@ -210,6 +214,8 @@ GUICtrlSetOnEvent($Set6120sshinfo, '_Set6120sshinfo')
 GUICtrlSetOnEvent($Set6120selmac, '_Set6120selctedmac')
 GUICtrlSetOnEvent($Set6120toallmacs, '_Set6120toallmacs')
 GUICtrlSetOnEvent($Set6120toallmacstilonline, '_Set6120toallmacstilonline')
+
+GUICtrlSetOnEvent($SetStaticIpSettings, '_SetStaticIpInfo')
 GUICtrlSetOnEvent($SetIntDisable, '_SetInterfaceDisabled')
 GUICtrlSetOnEvent($SetIntEnable, '_SetInterfaceEnabled')
 GUICtrlSetOnEvent($SetIntstatic, '_SetInterfaceStatic')
@@ -663,6 +669,10 @@ Func UpdateSettingIni()
 	IniWrite($settings, '6120', 'sshPW', $6120sshPW)
 	IniWrite($settings, '6120', 'sshSet', $6120sshSet)
 
+	IniWrite($settings, 'StaticIP', 'intip', $intip)
+	IniWrite($settings, 'StaticIP', 'intsub', $intsub)
+	IniWrite($settings, 'StaticIP', 'intgate', $intgate)
+
 	IniWrite($settings, 'ScanMacRange', 'startmac', $startmac)
 	IniWrite($settings, 'ScanMacRange', 'endmac', $endmac)
 	IniWrite($settings, 'ScanMacRange', 'macpre', $macpre)
@@ -1032,8 +1042,9 @@ Func _Settoallmacs($type)
 			If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
 			If Not @error Then
 				;set ip
-				GUICtrlSetData($messagebox, "Setting ip to '192.168.100.2' on '" & $DefaultName & "'")
-				_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+				GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
+				_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
+				GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
 				Sleep(5000)
 				FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 				$query = "SELECT mac, client, tftp FROM CONFIGDATA"
@@ -1186,8 +1197,9 @@ Func _Settoallmacstilonline($type)
 					GUICtrlSetData($pprogress, $percent)
 					GUICtrlSetData($plabel, $cm & " / " & $iRows)
 					;Change lan ip to static
-					GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to 192.168.100.2")
-					_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="192.168.100.2" mask="255.255.255.0" gateway=none')
+					GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
+					_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
+					GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
 					;Wait for ip changes
 					$WaitTimer = TimerInit()
 					While TimerDiff($WaitTimer) < 5000
@@ -1727,6 +1739,64 @@ Func _TestMacRangeGUIClose()
 	GUIDelete($tmrGUI)
 EndFunc   ;==>_TestMacRangeGUIClose
 
+;---> Set Interface <---
+
+Func _SetStaticIpInfo()
+	$StaticIPForm = GUICreate("Staic IP Settings", 271, 191, -1, -1)
+	$labip = GUICtrlCreateLabel("IP Address", 10, 10, 250, 17)
+	$labsubnet = GUICtrlCreateLabel("Subnet Mask", 10, 53, 250, 17)
+	$labgateway = GUICtrlCreateLabel("Gateway", 10, 96, 250, 17)
+	$InpIP = GUICtrlCreateInput($intip, 10, 27, 250, 21)
+	$InpSubnet = GUICtrlCreateInput($intsub, 10, 70, 250, 21)
+	$InpGateway = GUICtrlCreateInput($intgate, 12, 113, 250, 21)
+	$ButOK = GUICtrlCreateButton("OK", 16, 150, 105, 25)
+	$ButCan = GUICtrlCreateButton("Cancel", 140, 150, 105, 25)
+	GUICtrlSetOnEvent($ButOK, '_SetStaticIpInfoOK')
+	GUICtrlSetOnEvent($ButCan, '_SetStaticIpInfoCan')
+	GUISetState(@SW_SHOW)
+EndFunc
+
+Func _SetStaticIpInfoOK()
+	$intip = GUICtrlRead($InpIP)
+	$intsub = GUICtrlRead($InpSubnet)
+	$intgate = GUICtrlRead($InpGateway)
+	if $intgate = "" Then $intgate = "none"
+	GUIDelete($StaticIPForm)
+EndFunc
+
+Func _SetStaticIpInfoCan()
+	GUIDelete($StaticIPForm)
+EndFunc
+
+Func _SetInterfaceStatic()
+	If $intip <> "" Then
+		GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
+		_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
+		GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
+	Else
+		MsgBox(0, "Error", "Please set a static ip first")
+		GUICtrlSetData($messagebox, "Error setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
+	EndIf
+EndFunc
+
+Func _SetInterfaceDHCP()
+	GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to DHCP on '" & $DefaultName & "'")
+	_RunDos('netsh interface ip set address "' & $DefaultName & '" source=dhcp')
+	GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to DHCP on '" & $DefaultName & "'")
+EndFunc
+
+Func _SetInterfaceDisabled()
+	GUICtrlSetData($messagebox, _GetTime() & ": Setting interface '" & $DefaultName & "' to Disabled")
+	_RunDos('netsh interface set interface "' & $DefaultName & '" DISABLED')
+	GUICtrlSetData($messagebox, _GetTime() & ": Done setting interface '" & $DefaultName & "' to Disabled")
+EndFunc
+
+Func _SetInterfaceEnabled()
+	GUICtrlSetData($messagebox, _GetTime() & ": Setting interface '" & $DefaultName & "' to Enabled")
+	_RunDos('netsh interface set interface "' & $DefaultName & '" ENABLED')
+	GUICtrlSetData($messagebox, _GetTime() & ": Done setting interface '" & $DefaultName & "' to Enabled")
+EndFunc
+
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Button Functions
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1843,53 +1913,3 @@ Func _FixLineNumbers();Update Listview Row Numbers in DataArray
 		_SQLite_Exec($DBhndl, $query)
 	Next
 EndFunc   ;==>_FixLineNumbers
-
-Func _SetInterfaceStatic()
-	$StaticIPForm = GUICreate("Staic IP Settings", 271, 191, -1, -1)
-	$labip = GUICtrlCreateLabel("IP Address", 10, 10, 250, 17)
-	$labsubnet = GUICtrlCreateLabel("Subnet Mask", 10, 53, 250, 17)
-	$labgateway = GUICtrlCreateLabel("Gateway", 10, 96, 250, 17)
-	$InpIP = GUICtrlCreateInput("192.168.100.2", 10, 27, 250, 21)
-	$InpSubnet = GUICtrlCreateInput("255.255.255.0", 10, 70, 250, 21)
-	$InpGateway = GUICtrlCreateInput("", 12, 113, 250, 21)
-	$ButOK = GUICtrlCreateButton("OK", 16, 150, 105, 25)
-	$ButCan = GUICtrlCreateButton("Cancel", 140, 150, 105, 25)
-	GUICtrlSetOnEvent($ButOK, '_SetInterfaceStaticOK')
-	GUICtrlSetOnEvent($ButCan, '_SetInterfaceStaticCan')
-	GUISetState(@SW_SHOW)
-EndFunc
-
-Func _SetInterfaceStaticOK()
-	$intip = GUICtrlRead($InpIP)
-	$intsub = GUICtrlRead($InpSubnet)
-	$intgate = GUICtrlRead($InpGateway)
-	if $intgate = "" Then $intgate = "none"
-	GUIDelete($StaticIPForm)
-	If $inpip <> "" Then
-		GUICtrlSetData($messagebox, "Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-		_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
-	EndIf
-	GUICtrlSetData($messagebox, "Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-EndFunc
-
-Func _SetInterfaceStaticCan()
-	GUIDelete($StaticIPForm)
-EndFunc
-
-Func _SetInterfaceDHCP()
-	GUICtrlSetData($messagebox, "Setting ip to DHCP on '" & $DefaultName & "'")
-	_RunDos('netsh interface ip set address "' & $DefaultName & '" source=dhcp')
-	GUICtrlSetData($messagebox, "Done setting ip to DHCP on '" & $DefaultName & "'")
-EndFunc
-
-Func _SetInterfaceDisabled()
-	GUICtrlSetData($messagebox, "Setting interface '" & $DefaultName & "' to Disabled")
-	_RunDos('netsh interface set interface "' & $DefaultName & '" DISABLED')
-	GUICtrlSetData($messagebox, "Done setting interface '" & $DefaultName & "' to Disabled")
-EndFunc
-
-Func _SetInterfaceEnabled()
-	GUICtrlSetData($messagebox, "Setting interface '" & $DefaultName & "' to Enabled")
-	_RunDos('netsh interface set interface "' & $DefaultName & '" ENABLED')
-	GUICtrlSetData($messagebox, "Done setting interface '" & $DefaultName & "' to Enabled")
-EndFunc
