@@ -1,7 +1,9 @@
-#RequireAdmin
+#Region ;**** Directives created by AutoIt3Wrapper_GUI ****
+#AutoIt3Wrapper_Res_requestedExecutionLevel=highestAvailable
+#EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.3.1"
+$Program_Version = "0.8.3.2"
 $Last_Modified = "2014-08-03"
 $By = "TheMHC"
 ;-----------------------------------
@@ -279,7 +281,7 @@ Func _CheckData($data)
 	ConsoleWrite(BinaryLen($data) & 'bytes ' & StringLen($data) & 'chars - ' & $data & @CRLF)
 	GUICtrlSetData($messagebox, 'UDP Data: ' & BinaryLen($data) & ' bytes (' & _GetTime() & ')')
 	;Get data from UDP Hex String
-	If StringLen($data) >= "640" Then
+	If StringLen($data) >= "600" Then
 		GUICtrlSetData($messagebox, 'Checking Data: ' & BinaryLen($data) & ' bytes (' & _GetTime() & ')')
 		;Get Modem Mac Address
 		$mac = StringMid($data, 59, 12)
