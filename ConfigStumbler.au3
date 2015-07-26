@@ -1044,10 +1044,8 @@ Func _Settoallmacs($type)
 			If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
 			If Not @error Then
 				;set ip
-				GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-				_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
-				GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-				Sleep(5000)
+				_SetInterfaceStatic()
+				Sleep(1000)
 				FileWrite($file, 'Mac Address,Client IP,TFTP IP,Config,Info,Times Seen,configtxt(hex)' & @CRLF)
 				$query = "SELECT mac, client, tftp FROM CONFIGDATA"
 				$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
@@ -1177,34 +1175,99 @@ Func _Settoallmacstilonline($type)
 		MsgBox(0, "Error", "Set 6120 ssh info first")
 	Else
 		Local $ConfigMatchArray, $iRows, $iColumns, $iRval, $waittime
-		If $type = "5100" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "30")
-		If $type = "5101" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "65")
-		If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
-		If Not @error Then
-			$query = "SELECT mac FROM CONFIGDATA"
-			$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
-			If $iRows <> 0 Then
-				;show progress gui
-				$pform = GUICreate("Progress", 420, 125, -1, -1)
-				$pprogress = GUICtrlCreateProgress(10, 15, 400, 25)
-				$plabel = GUICtrlCreateLabel("", 10, 45, 400, 20)
-				$pcan = GUICtrlCreateButton("Cancel", 40, 80, 153, 33)
-				$ppause = GUICtrlCreateButton("Pause", 224, 80, 153, 33)
-				$pcanbit = 0
-				GUISetState(@SW_SHOW)
-				For $cm = 1 To $iRows
-					$mac = $ConfigMatchArray[$cm][0]
-					;Set Percent
-					$percent = ($cm / $iRows) * 100
-					GUICtrlSetData($pprogress, $percent)
-					GUICtrlSetData($plabel, $cm & " / " & $iRows)
-					;Change lan ip to static
-					GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-					_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
-					GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-					;Wait for ip changes
-					$WaitTimer = TimerInit()
-					While TimerDiff($WaitTimer) < 5000
+		$fldatetimestamp = StringFormat("%04i", @YEAR) & '-' & StringFormat("%02i", @MON) & '-' & StringFormat("%02i", @MDAY) & ' ' & @HOUR & '-' & @MIN & '-' & @SEC
+		$file = FileSaveDialog('Save As', '', 'Coma Delimeted File (*.CSV)', '', $fldatetimestamp & '.CSV')
+		If @error <> 1 Then
+			If $type = "5100" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "30")
+			If $type = "5101" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "65")
+			If $type = "6120" Then $waittime = InputBox("Time to wait before mac change", "Time (in seconds)", "75")
+			If Not @error Then
+				$query = "SELECT mac FROM CONFIGDATA"
+				$iRval = _SQLite_GetTable2d($DBhndl, $query, $ConfigMatchArray, $iRows, $iColumns)
+				If $iRows <> 0 Then
+					;show progress gui
+					$pform = GUICreate("Progress", 420, 125, -1, -1)
+					$pprogress = GUICtrlCreateProgress(10, 15, 400, 25)
+					$plabel = GUICtrlCreateLabel("", 10, 45, 400, 20)
+					$pcan = GUICtrlCreateButton("Cancel", 40, 80, 153, 33)
+					$ppause = GUICtrlCreateButton("Pause", 224, 80, 153, 33)
+					$pcanbit = 0
+					GUISetState(@SW_SHOW)
+					For $cm = 1 To $iRows
+						$mac = $ConfigMatchArray[$cm][0]
+						;Set Percent
+						$percent = ($cm / $iRows) * 100
+						GUICtrlSetData($pprogress, $percent)
+						GUICtrlSetData($plabel, $cm & " / " & $iRows)
+						;Change lan ip to static
+						_SetInterfaceStatic()
+						Sleep(1000)
+						If $pcanbit = 0 Then
+							;Change Modem Mac Adress
+							GUICtrlSetData($messagebox, _GetTime() & ": Setting modem mac to " & $mac & "(" & $cm & "/" & $iRows & ")")
+							If $type = "5100" Then _Set5100mac($mac)
+							If $type = "5101" Then _Set5101mac($mac)
+							If $type = "6120" Then _Set6120mac($mac)
+							;wait for modem to boot
+							$WaitTimer = TimerInit()
+							While TimerDiff($WaitTimer) < ($waittime * 1000)
+								;watch for Pause/Cancel
+								$pausebtn = _GUICtrlButton_GetState($ppause)
+								If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
+									GUICtrlSetData($ppause, "UnPause")
+									Sleep(100)
+									While 1
+										$closebtn = _GUICtrlButton_GetState($pcan)
+										If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+											$pcanbit = 1
+											ExitLoop
+										EndIf
+										$pausebtn = _GUICtrlButton_GetState($ppause)
+										If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
+										Sleep(100)
+									WEnd
+									GUICtrlSetData($ppause, "Pause")
+									Sleep(500)
+								EndIf
+								$closebtn = _GUICtrlButton_GetState($pcan)
+								If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
+									$pcanbit = 1
+									ExitLoop
+								EndIf
+								Sleep(100)
+							WEnd
+							If $pcanbit = 0 Then
+								;Pull config from modem
+								GUICtrlSetData($messagebox, "Trying to download and decode config from modem for mac " & $mac & " (" & _GetTime() & ")")
+								If $type = "5100" Then $conflocinfo = _Get5100config()
+								If $type = "5101" Then $conflocinfo = _Get5101config()
+								If $type = "6120" Then $conflocinfo = _Get6120config($mac)
+								;Decode config file downloaded above
+								$configtxt = ""
+								$configname = ""
+								$infostring = ""
+								If $conflocinfo[0] = 1 Then
+									$config_destfile = $conflocinfo[1]
+									$configname = $conflocinfo[2]
+									$decodedconfig = _DecodeConfig($config_destfile)
+									If $decodedconfig <> "" Then $configtxt = $decodedconfig
+									$configinfo = _GetConfigInfo($decodedconfig)
+									If $configinfo <> "" Then $infostring = $configinfo
+								EndIf
+								;write to new configstumbler csv file
+								FileWrite($file, '"' & $mac & '","","","' & $configname & '","' & $infostring & '",1,' & StringToBinary($configtxt) & @CRLF)
+								;Change lan ip to dhcp
+								_SetInterfaceDHCP()
+								;Test Internet Connection
+								GUICtrlSetData($messagebox, _GetTime() & ": Checking internet conntection with mac " & $mac)
+								If _TestInternetConnection() = 1 Then
+									;Modem is online
+									GUICtrlSetData($messagebox, _GetTime() & ": Online with mac " & $mac & "! :-D")
+									Sleep(1000)
+									ExitLoop
+								EndIf
+							EndIf
+						EndIf
 						;watch for Pause/Cancel
 						$pausebtn = _GUICtrlButton_GetState($ppause)
 						If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
@@ -1221,112 +1284,47 @@ Func _Settoallmacstilonline($type)
 								Sleep(100)
 							WEnd
 							GUICtrlSetData($ppause, "Pause")
-							Sleep(500)
+							Sleep(100)
 						EndIf
 						$closebtn = _GUICtrlButton_GetState($pcan)
-						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
-							$pcanbit = 1
-							ExitLoop
-						EndIf
-						Sleep(100)
-					WEnd
-					If $pcanbit = 0 Then
-						;Change Modem Mac Adress
-						GUICtrlSetData($messagebox, _GetTime() & ": Setting modem mac to " & $mac & "(" & $cm & "/" & $iRows & ")")
-						If $type = "5100" Then _Set5100mac($mac)
-						If $type = "5101" Then _Set5101mac($mac)
-						If $type = "6120" Then _Set6120mac($mac)
-						;Change lan ip to dhcp
-						GUICtrlSetData($messagebox, _GetTime() & ": Setting nic ip to dhcp")
-						_RunDos('netsh interface ip set address "' & $DefaultName & '" source=dhcp')
-						GUICtrlSetData($messagebox, _GetTime() & ": Waiting " & $waittime & " seconds for modem to reboot with mac " & $mac & "(" & $cm & "/" & $iRows & ")")
-						;wait for modem to boot
-						$WaitTimer = TimerInit()
-						While TimerDiff($WaitTimer) < ($waittime * 1000)
-							;watch for Pause/Cancel
-							$pausebtn = _GUICtrlButton_GetState($ppause)
-							If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
-								GUICtrlSetData($ppause, "UnPause")
-								Sleep(100)
-								While 1
-									$closebtn = _GUICtrlButton_GetState($pcan)
-									If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
-										$pcanbit = 1
-										ExitLoop
-									EndIf
-									$pausebtn = _GUICtrlButton_GetState($ppause)
-									If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
-									Sleep(100)
-								WEnd
-								GUICtrlSetData($ppause, "Pause")
-								Sleep(500)
-							EndIf
-							$closebtn = _GUICtrlButton_GetState($pcan)
-							If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
-								$pcanbit = 1
-								ExitLoop
-							EndIf
-							Sleep(100)
-						WEnd
-						If $pcanbit = 0 Then
-							;Test Internet Connection
-							GUICtrlSetData($messagebox, _GetTime() & ": Checking internet conntection with mac " & $mac)
-							If _TestInternetConnection() = 1 Then
-								;Modem is online
-								GUICtrlSetData($messagebox, _GetTime() & ": Online with mac " & $mac & "! :-D")
-								Sleep(1000)
-								ExitLoop
-							EndIf
-						EndIf
-					EndIf
-					;watch for Pause/Cancel
-					$pausebtn = _GUICtrlButton_GetState($ppause)
-					If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then
-						GUICtrlSetData($ppause, "UnPause")
-						Sleep(100)
-						While 1
-							$closebtn = _GUICtrlButton_GetState($pcan)
-							If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then
-								$pcanbit = 1
-								ExitLoop
-							EndIf
-							$pausebtn = _GUICtrlButton_GetState($ppause)
-							If BitAND($pausebtn, $BST_PUSHED) = $BST_PUSHED Then ExitLoop
-							Sleep(100)
-						WEnd
-						GUICtrlSetData($ppause, "Pause")
-						Sleep(100)
-					EndIf
-					$closebtn = _GUICtrlButton_GetState($pcan)
-					If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then $pcanbit = 1
-					If $pcanbit = 1 Then ExitLoop
-				Next
-				GUIDelete($pform)
-			EndIf
-			GUICtrlSetData($messagebox, "Done setting macs ")
-		Else
-			GUICtrlSetData($messagebox, "Error setting time to wait :-/")
+						If BitAND($closebtn, $BST_PUSHED) = $BST_PUSHED Then $pcanbit = 1
+						If $pcanbit = 1 Then ExitLoop
+					Next
+					GUIDelete($pform)
+				EndIf
+				GUICtrlSetData($messagebox, "Done setting macs ")
+			Else
+				GUICtrlSetData($messagebox, "Error setting time to wait :-/")
+		EndIf
 		EndIf
 	EndIf
 EndFunc   ;==>_Settoallmacstilonline
 
 Func _TestInternetConnection()
 	$return = 0
-	$s1 = "www.google.com"
-	$s2 = "www.msn.com"
-	$s3 = "www.yahoo.com"
-	Ping($s1)
-	If Not @error Then
-		$return = 1
-	Else
-		Ping($s2)
-		If Not @error Then
-			$return = 1
-		Else
-			Ping($s3)
-			If Not @error Then $return = 1
-		EndIf
-	EndIf
+	$pingwait = 30000
+	Local $TestList[3]
+	$TestList[0] = 2
+	$TestList[1] = "8.8.8.8"
+	$TestList[2] = "8.8.4.4"
+
+	$pingtimer = TimerInit()
+	While TimerDiff($pingtimer) <= $pingwait
+		For $pt = 1 to $TestList[0]
+			ConsoleWrite("Pinging " & $TestList[$pt] & @CRLF)
+			GUICtrlSetData($messagebox, "Pinging " & $TestList[$pt] & ". (" & _GetTime() & ")")
+			$ping = Ping($TestList[$pt])
+			If $ping > 0 Then
+				ConsoleWrite("Ping Success" & @CRlF)
+				$return = 1
+				ExitLoop
+			Else
+				ConsoleWrite("Ping Error: " & @error & @CRlF)
+			EndIf
+			Sleep(1000)
+		Next
+		If $return = 1 Then ExitLoop
+	WEnd
 	Return ($return)
 EndFunc   ;==>_TestInternetConnection
 
@@ -1334,40 +1332,45 @@ EndFunc   ;==>_TestInternetConnection
 
 Func _Set5100mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -telnet ' & $5100telnetUN & '@' & $5100telnetIP
+	ConsoleWrite($cmd & @CRLF)
 	$putty = Run($cmd)
 	WinActivate($5100telnetIP & " - PuTTY")
-	WinWaitActive($5100telnetIP & " - PuTTY")
-	Send("{ENTER}")
-	Sleep(50)
-	Send($5100telnetUN)
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send($5100telnetPW)
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("cd non-vol")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("cd halif")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("mac_address 1 " & $mac)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("write")
-	Send("{ENTER}")
-	Sleep(50)
-	Send("cd \")
-	Send("{ENTER}")
-	Sleep(50)
-	Send("reset")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(1000)
+	$wait = WinWaitActive($5100telnetIP & " - PuTTY", "", 10)
+	If $wait = 0 Then
+		GUICtrlSetData($messagebox, "Error setting modem mac to " & $mac & ". Putty didn't show. (" & _GetTime() & ")")
+	Else
+		Send("{ENTER}")
+		Sleep(50)
+		Send($5100telnetUN)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send($5100telnetPW)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd non-vol")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd halif")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("mac_address 1 " & $mac)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("write")
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd \")
+		Send("{ENTER}")
+		Sleep(50)
+		Send("reset")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(1000)
+	EndIf
 	ProcessClose($putty)
 EndFunc   ;==>_Set5100mac
 
@@ -1404,20 +1407,24 @@ Func _Set6120mac($mac)
 	$cmd = '"' & $PuttyEXE & '" -ssh ' & $6120sshUN & '@' & $6120sshIP
 	$putty = Run($cmd)
 	WinActivate($6120sshIP & " - PuTTY")
-	WinWaitActive($6120sshIP & " - PuTTY")
-	Sleep(2000)
-	Send($6120sshPW)
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(1000)
-	Send("/usr/local/bin/mfprod write cmMacAddress " & $mac)
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(50)
-	Send("reboot")
-	Sleep(50)
-	Send("{ENTER}")
-	Sleep(1000)
+	$wait = WinWaitActive($6120sshIP & " - PuTTY", "", 10)
+	If $wait = 0 Then
+		GUICtrlSetData($messagebox, "Error setting modem mac to " & $mac & ". Putty didn't show. (" & _GetTime() & ")")
+	Else
+		Sleep(2000)
+		Send($6120sshPW)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(1000)
+		Send("/usr/local/bin/mfprod write cmMacAddress " & $mac)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("reboot")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(1000)
+	EndIf
 	ProcessClose($putty)
 EndFunc   ;==>_Set6120mac
 
@@ -1560,6 +1567,7 @@ Func _TestMacRangeGUIOK()
 
 	For $ml = $startmacdec To $endmacdec
 		$fullmac = Hex($ml, 12)
+		$mac_formated = StringMid($fullmac, 1, 2) & ":" & StringMid($fullmac, 3, 2) & ":" & StringMid($fullmac, 5, 2) & ":" & StringMid($fullmac, 7, 2) & ":" & StringMid($fullmac, 9, 2) & ":" & StringMid($fullmac, 11, 2)
 		$configname = ""
 		GUICtrlSetData($messagebox, $fullmac)
 		If $radnone = 1 Then
@@ -1575,7 +1583,7 @@ Func _TestMacRangeGUIOK()
 		ElseIf $rad5100 = 1 Then
 			$bftype = "5100"
 			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
-			_Set5100mac($fullmac)
+			_Set5100mac($mac_formated)
 			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
@@ -1619,7 +1627,7 @@ Func _TestMacRangeGUIOK()
 		ElseIf $rad5101 = 1 Then
 			$bftype = "5101"
 			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
-			_Set5101mac($fullmac)
+			_Set5101mac($mac_formated)
 			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
@@ -1663,7 +1671,7 @@ Func _TestMacRangeGUIOK()
 		ElseIf $rad6120 = 1 Then
 			$bftype = "6120"
 			GUICtrlSetData($messagebox, "Setting modem mac to " & $fullmac & " (" & _GetTime() & ")")
-			_Set6120mac($fullmac)
+			_Set6120mac($mac_formated)
 			GUICtrlSetData($messagebox, "Waiting " & $testwaittime & " seconds for modem to reboot with mac " & $fullmac & " (" & _GetTime() & ")")
 			$WaitTimer = TimerInit()
 			While TimerDiff($WaitTimer) < ($testwaittime * 1000)
@@ -1756,48 +1764,56 @@ Func _SetStaticIpInfo()
 	GUICtrlSetOnEvent($ButOK, '_SetStaticIpInfoOK')
 	GUICtrlSetOnEvent($ButCan, '_SetStaticIpInfoCan')
 	GUISetState(@SW_SHOW)
-EndFunc
+EndFunc   ;==>_SetStaticIpInfo
 
 Func _SetStaticIpInfoOK()
 	$intip = GUICtrlRead($InpIP)
 	$intsub = GUICtrlRead($InpSubnet)
 	$intgate = GUICtrlRead($InpGateway)
-	if $intgate = "" Then $intgate = "none"
+	If $intgate = "" Then $intgate = "none"
 	GUIDelete($StaticIPForm)
-EndFunc
+EndFunc   ;==>_SetStaticIpInfoOK
 
 Func _SetStaticIpInfoCan()
 	GUIDelete($StaticIPForm)
-EndFunc
+EndFunc   ;==>_SetStaticIpInfoCan
 
 Func _SetInterfaceStatic()
 	If $intip <> "" Then
 		GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
-		_RunDos('netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"')
+		$cmd = 'netsh interface ip set address "' & $DefaultName & '" source=static addr="' & $intip & '" mask="' & $intsub & '" gateway="' & $intgate & '"'
+		ConsoleWrite($cmd & @CRLF)
+		RunWait(@ComSpec & " /C " & $cmd, '', @SW_HIDE)
 		GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
 	Else
 		MsgBox(0, "Error", "Please set a static ip first")
 		GUICtrlSetData($messagebox, "Error setting ip to '" & $intip & "/" & $intsub & "/" & $intgate & "' on '" & $DefaultName & "'")
 	EndIf
-EndFunc
+EndFunc   ;==>_SetInterfaceStatic
 
 Func _SetInterfaceDHCP()
 	GUICtrlSetData($messagebox, _GetTime() & ": Setting ip to DHCP on '" & $DefaultName & "'")
-	_RunDos('netsh interface ip set address "' & $DefaultName & '" source=dhcp')
+	$cmd = 'netsh interface ip set address "' & $DefaultName & '" source=dhcp'
+	ConsoleWrite($cmd & @CRLF)
+	RunWait(@ComSpec & " /C " & $cmd, '', @SW_HIDE)
 	GUICtrlSetData($messagebox, _GetTime() & ": Done setting ip to DHCP on '" & $DefaultName & "'")
-EndFunc
+EndFunc   ;==>_SetInterfaceDHCP
 
 Func _SetInterfaceDisabled()
 	GUICtrlSetData($messagebox, _GetTime() & ": Setting interface '" & $DefaultName & "' to Disabled")
-	_RunDos('netsh interface set interface "' & $DefaultName & '" DISABLED')
+	$cmd = 'netsh interface set interface "' & $DefaultName & '" DISABLED'
+	ConsoleWrite($cmd & @CRLF)
+	RunWait(@ComSpec & " /C " & $cmd, '', @SW_HIDE)
 	GUICtrlSetData($messagebox, _GetTime() & ": Done setting interface '" & $DefaultName & "' to Disabled")
-EndFunc
+EndFunc   ;==>_SetInterfaceDisabled
 
 Func _SetInterfaceEnabled()
 	GUICtrlSetData($messagebox, _GetTime() & ": Setting interface '" & $DefaultName & "' to Enabled")
-	_RunDos('netsh interface set interface "' & $DefaultName & '" ENABLED')
+	$cmd = 'netsh interface set interface "' & $DefaultName & '" ENABLED'
+	ConsoleWrite($cmd & @CRLF)
+	RunWait(@ComSpec & " /C " & $cmd, '', @SW_HIDE)
 	GUICtrlSetData($messagebox, _GetTime() & ": Done setting interface '" & $DefaultName & "' to Enabled")
-EndFunc
+EndFunc   ;==>_SetInterfaceEnabled
 
 ;-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ; Button Functions
