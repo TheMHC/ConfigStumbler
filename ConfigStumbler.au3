@@ -3,8 +3,8 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.3.2"
-$Last_Modified = "2014-08-03"
+$Program_Version = "0.8.4.0"
+$Last_Modified = "2015-07-26"
 $By = "TheMHC"
 ;-----------------------------------
 Opt("GUIOnEventMode", 1);Change to OnEvent mode
