@@ -1,9 +1,10 @@
+#RequireAdmin
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
-#AutoIt3Wrapper_Res_requestedExecutionLevel=highestAvailable
+#AutoIt3Wrapper_Res_requestedExecutionLevel=requireAdministrator
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.4.1"
+$Program_Version = "0.8.4.2"
 $Last_Modified = "2015-08-14"
 $By = "TheMHC"
 ;-----------------------------------
@@ -1385,8 +1386,6 @@ Func _Set5101mac($mac)
 		GUICtrlSetData($messagebox, "Error setting modem mac to " & $mac & ". Putty didn't show. (" & _GetTime() & ")")
 		Sleep(5000)
 	Else
-		Send("{ENTER}")
-		Sleep(50)
 		Send($5101telnetUN)
 		Sleep(50)
 		Send("{ENTER}")
