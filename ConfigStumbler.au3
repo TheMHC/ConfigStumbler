@@ -3,8 +3,8 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ;-----------------------------------
 $Program_Name = "ConfigStumbler"
-$Program_Version = "0.8.4.0"
-$Last_Modified = "2015-07-26"
+$Program_Version = "0.8.4.1"
+$Last_Modified = "2015-08-14"
 $By = "TheMHC"
 ;-----------------------------------
 Opt("GUIOnEventMode", 1);Change to OnEvent mode
@@ -1338,6 +1338,7 @@ Func _Set5100mac($mac)
 	$wait = WinWaitActive($5100telnetIP & " - PuTTY", "", 10)
 	If $wait = 0 Then
 		GUICtrlSetData($messagebox, "Error setting modem mac to " & $mac & ". Putty didn't show. (" & _GetTime() & ")")
+		Sleep(5000)
 	Else
 		Send("{ENTER}")
 		Sleep(50)
@@ -1375,32 +1376,48 @@ Func _Set5100mac($mac)
 EndFunc   ;==>_Set5100mac
 
 Func _Set5101mac($mac)
-	$scriptfilename = @ScriptDir & '\5101script.txt'
-	FileDelete($scriptfilename)
-	$scriptfile = $5101telnetIP & ' 23' & @CRLF _
-			 & 'WAIT "Username:"' & @CRLF _
-			 & 'SEND "' & $5101telnetUN & '\m"' & @CRLF _
-			 & 'WAIT "Password:"' & @CRLF _
-			 & 'SEND "' & $5101telnetPW & '\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "cd non-vol\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "cd halif\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "mac_address 1 ' & $mac & '\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "write\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "cd \\\m"' & @CRLF _
-			 & 'WAIT ">"' & @CRLF _
-			 & 'SEND "reset\m"' & @CRLF
-	ConsoleWrite($scriptfile & @CRLF)
-	FileWrite($scriptfilename, $scriptfile)
-
-	$cmd = $TST10EXE & ' /r:"' & $scriptfilename & '" /o:output.txt'
-	RunWait($cmd)
-	FileDelete($scriptfilename)
+	$cmd = '"' & $PuttyEXE & '" -telnet ' & $5101telnetUN & '@' & $5101telnetIP
 	ConsoleWrite($cmd & @CRLF)
+	$putty = Run($cmd)
+	WinActivate($5101telnetIP & " - PuTTY")
+	$wait = WinWaitActive($5101telnetIP & " - PuTTY", "", 10)
+	If $wait = 0 Then
+		GUICtrlSetData($messagebox, "Error setting modem mac to " & $mac & ". Putty didn't show. (" & _GetTime() & ")")
+		Sleep(5000)
+	Else
+		Send("{ENTER}")
+		Sleep(50)
+		Send($5101telnetUN)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send($5101telnetPW)
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd non-vol")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd halif")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("mac_address 1 " & $mac)
+		Send("{ENTER}")
+		Sleep(50)
+		Send("write")
+		Send("{ENTER}")
+		Sleep(50)
+		Send("cd \")
+		Send("{ENTER}")
+		Sleep(50)
+		Send("reset")
+		Sleep(50)
+		Send("{ENTER}")
+		Sleep(1000)
+	EndIf
+	ProcessClose($putty)
 EndFunc   ;==>_Set5101mac
 
 Func _Set6120mac($mac)
